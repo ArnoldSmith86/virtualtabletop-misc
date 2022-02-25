@@ -276,8 +276,11 @@ mergePR() {
   pr=$1
   name=$9
 
-  curl -s https://patch-diff.githubusercontent.com/raw/ArnoldSmith86/virtualtabletop/pull/$pr.diff | patch -fp1
-  rm -f tests/testcafe/tests.js.rej
+  curl -s https://patch-diff.githubusercontent.com/raw/ArnoldSmith86/virtualtabletop/pull/$pr.diff | tee /tmp/$pr.diff | patch -fp1
+
+  rm -f tests/testcafe/tests.js.rej tests/testcafe/tests.js.orig
+  git checkout tests/testcafe/tests.js
+
   untracked=$(git status | sed -n '/Untracked/,$p' | grep -Po '^\t\K.*')
 
   grep -Pv '\.(orig|rej)$' <<<"$untracked" | grep . | while read new; do
@@ -294,11 +297,12 @@ mergePR() {
     fi
 
     file=${rej/.rej/}
-    echo "Checking for patch file ../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
-    if [ -e "../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch" ]; then
+    patch=../$pr-${file//\//-}-$(md5sum /tmp/$pr.diff | awk '{ print $1 }')-$(md5sum "$file.orig" | awk '{ print $1 }').patch
+    echo "Checking for patch file $patch"
+    if [ -e "$patch" ]; then
       echo "FOUND - using manual patch file."
       cp "$file.orig" "$file"
-      patch -fp1 < "../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
+      patch -fp1 < "$patch"
       rm "$rej"
     fi
   done
@@ -314,14 +318,13 @@ mergePR() {
     echo "$untracked"
     git reset --hard HEAD && git clean -fd
     if [ "$RESOLVE_CONFLICTS" ]; then
-      curl -s https://patch-diff.githubusercontent.com/raw/ArnoldSmith86/virtualtabletop/pull/$pr.diff | patch --merge -fp1
+      patch --merge -fp1 < /tmp/$pr.diff
+      rm -f tests/testcafe/tests.js.rej tests/testcafe/tests.js.orig
+      git checkout tests/testcafe/tests.js
       git status | grep -Po '\t\K[a-z].*(?=\.orig)' | xargs geany
-      echo >&2
-      echo Please resolve conflicts! >&2
-      echo >&2
       read </dev/tty
       git status | grep -Po '\t\K[a-z].*(?=\.orig)' | while read file; do
-        git diff "$file" > "../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
+        git diff "$file" > "../$pr-${file//\//-}-$(md5sum /tmp/$pr.diff | awk '{ print $1 }')-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
         rm "$file.orig"
       done
     else
