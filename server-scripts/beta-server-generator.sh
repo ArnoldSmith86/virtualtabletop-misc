@@ -266,20 +266,23 @@ listPullRequestsCached() {
   cat ../prCache
 }
 
+manual() {
+  pushd ~/BETA-test-servers
+    update "$1"
+  popd
+}
+
 mergePR() {
   pr=$1
   name=$9
 
   curl -s https://patch-diff.githubusercontent.com/raw/ArnoldSmith86/virtualtabletop/pull/$pr.diff | patch -fp1
+  rm -f tests/testcafe/tests.js.rej
   untracked=$(git status | sed -n '/Untracked/,$p' | grep -Po '^\t\K.*')
 
   grep -Pv '\.(orig|rej)$' <<<"$untracked" | grep . | while read new; do
     echo "Adding new file $new."
     git add "$new"
-  done
-
-  grep -P '\.orig$' <<<"$untracked" | grep . | while read original; do
-    rm "$original"
   done
 
   grep -P '\.rej$' <<<"$untracked" | grep . | while read rej; do
@@ -289,6 +292,19 @@ mergePR() {
       git add library-commit
       rm library.rej
     fi
+
+    file=${rej/.rej/}
+    echo "Checking for patch file ../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
+    if [ -e "../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch" ]; then
+      echo "FOUND - using manual patch file."
+      cp "$file.orig" "$file"
+      patch -fp1 < "../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
+      rm "$rej"
+    fi
+  done
+
+  grep -P '\.orig$' <<<"$untracked" | grep . | while read original; do
+    rm "$original"
   done
 
   untracked=$(git status | sed -n '/Untracked/,$p' | grep -Po '^\t\K.*')
@@ -297,7 +313,20 @@ mergePR() {
     echo "MERGE FAILED: found untracked files:" >&2
     echo "$untracked"
     git reset --hard HEAD && git clean -fd
-    return 1
+    if [ "$RESOLVE_CONFLICTS" ]; then
+      curl -s https://patch-diff.githubusercontent.com/raw/ArnoldSmith86/virtualtabletop/pull/$pr.diff | patch --merge -fp1
+      git status | grep -Po '\t\K[a-z].*(?=\.orig)' | xargs geany
+      echo >&2
+      echo Please resolve conflicts! >&2
+      echo >&2
+      read </dev/tty
+      git status | grep -Po '\t\K[a-z].*(?=\.orig)' | while read file; do
+        git diff "$file" > "../$pr-${file//\//-}-$(md5sum "$file.orig" | awk '{ print $1 }').patch"
+        rm "$file.orig"
+      done
+    else
+      return 1
+    fi
   fi
 
   git commit -am "STAGING: $name (#$pr)"
