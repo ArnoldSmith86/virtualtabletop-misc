@@ -146,7 +146,6 @@ cron() {
 }
 
 filterPR_editor() {
-  [ "$1" = 1087 ] && return # needed for URL to work
   [ "$1" =  791 ] && echo PR791 has radical changes. Not supported.
   [ "$6" =    0 ] && echo PR branch is in another repository. Not supported yet.
   shift
@@ -154,7 +153,7 @@ filterPR_editor() {
 }
 
 filterPR_handpicked() {
-  echo "$1" | grep -qP '1114|1112|1087|1081|1033|893|892' || echo Not included in handpicked PRs.
+  echo "$1" | grep -qP '1144|1141|1122|1033' || echo Not included in handpicked PRs.
 }
 
 filterPR_stable() {
