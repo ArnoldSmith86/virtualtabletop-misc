@@ -21,10 +21,16 @@ port() {
 }
 
 url() {
-  if grep -q router server.mjs; then
+  if [ $1 -ge 1087 ] && grep -q router server.mjs; then
     echo https://test.virtualtabletop.io/PR-$1
   else
     echo http://212.47.248.129:$(port $1)
+  fi
+}
+
+urlPrefix() {
+  if [ $1 -ge 1087 ] && grep -q router server.mjs; then
+    echo /PR-$1
   fi
 }
 
@@ -73,7 +79,7 @@ if [ -e config.template.json ]; then
     {
       "port": $(port $1),
       "externalURL": "$(url $1)",
-      "urlPrefix": "/PR-$1",
+      "urlPrefix": "$(urlPrefix $1)",
       "minifyJavascript": false,
 
       "directories": {

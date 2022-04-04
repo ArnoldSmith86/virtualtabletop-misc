@@ -153,7 +153,7 @@ filterPR_editor() {
 }
 
 filterPR_handpicked() {
-  echo "$1" | grep -qP '1144|1141|1122|1033' || echo Not included in handpicked PRs.
+  echo "$1" | grep -qP '1141|1122|1033' || echo Not included in handpicked PRs.
 }
 
 filterPR_stable() {
