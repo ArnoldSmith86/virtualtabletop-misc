@@ -109,7 +109,7 @@ echo $! > run.pid
 if ! [ -e $backup ]; then
   curl -H "Authorization: Bearer $TOKEN" \
     https://api.github.com/repos/ArnoldSmith86/virtualtabletop/issues/$1/comments \
-    -d "{\"body\":\"PR-SERVER-BOT: You can play around with it here: $(url $1)/pr-test (or any other room on that server)\"}"
+    -d "{\"body\":\"PR-SERVER-BOT: You can play around with it here: $(url $1)/pr-test (or any other room on that server)\n\nAfter merging, a backup will be available at https://beta.virtualtabletop.io/editor/PR$1-pr-test.\"}"
 fi
 
 rdfind -removeidentinode false -makehardlinks true -makeresultsfile false $dir/../*/assets
