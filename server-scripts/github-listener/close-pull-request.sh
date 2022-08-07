@@ -14,10 +14,10 @@ if [ -d $dir ]; then
   tar cJf $backup $dir/save
 
   for room in $dir/save/rooms/*json; do
-    cp $room ~/virtualtabletop/save/rooms/PR$1-$(basename $room)
+    cp $room ~/BETA-test-servers/editor/save/rooms/PR$1-$(basename $room)
   done
   for state in $dir/save/states/*json; do
-    cp $state ~/virtualtabletop/save/states/PR$1-$(basename $state)
+    cp $state ~/BETA-test-servers/editor/save/states/PR$1-$(basename $state)
   done
 
   rm -rf $dir/
