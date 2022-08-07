@@ -124,7 +124,7 @@ ____EOF
     linkLibrary
     rm -rf node_modules/
     linkModules
-    rm -rf .[egt]* [CLRS]* tests/ package-lock.json jest.config.mjs config.template.json
+    rm -rf .[egt]* [CLRS]* tests/ package-lock.json jest.config.mjs
     config_$1
   popd
   mv "$1_save" "$1"/save
@@ -146,6 +146,7 @@ cron() {
 }
 
 filterPR_editor() {
+  [ "$1" = 1223 ] && echo PR1223 has radical changes. Not supported.
   [ "$1" =  791 ] && echo PR791 has radical changes. Not supported.
   [ "$6" =    0 ] && echo PR branch is in another repository. Not supported yet.
   shift
@@ -157,16 +158,18 @@ filterPR_handpicked() {
 }
 
 filterPR_stable() {
-  [ "$1" = 791 ] && echo PR791 has radical changes. Not supported.
-  [ "$3" =   0 ] && echo Latest commit does not pass automated tests.
-  [ "$4" =   0 ] && echo Latest commit can not be merged to main without manually resolving conflicts according to GitHub.
-  [ "$5" =   1 ] && echo PR is marked as a draft.
-  [ "$6" =   0 ] && echo PR branch is in another repository. Not supported yet.
+  [ "$1" = 1223 ] && echo PR1223 has radical changes. Not supported.
+  [ "$1" =  791 ] && echo PR791 has radical changes. Not supported.
+  [ "$3" =    0 ] && echo Latest commit does not pass automated tests.
+  [ "$4" =    0 ] && echo Latest commit can not be merged to main without manually resolving conflicts according to GitHub.
+  [ "$5" =    1 ] && echo PR is marked as a draft.
+  [ "$6" =    0 ] && echo PR branch is in another repository. Not supported yet.
 }
 
 filterPR_unstable() {
-  [ "$1" = 791 ] && echo PR791 has radical changes. Not supported.
-  [ "$6" =   0 ] && echo PR branch is in another repository. Not supported yet.
+  [ "$1" = 1223 ] && echo PR1223 has radical changes. Not supported.
+  [ "$1" =  791 ] && echo PR791 has radical changes. Not supported.
+  [ "$6" =    0 ] && echo PR branch is in another repository. Not supported yet.
 }
 
 getName() {
