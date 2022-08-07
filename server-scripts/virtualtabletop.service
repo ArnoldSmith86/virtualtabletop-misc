@@ -1,0 +1,12 @@
+[Unit]
+Description=VirtualTabletop.io
+Requires=nginx.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/bash /root/start.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
