@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=1">
+<title>VTT Midjourney</title>
+<link rel="shortcut icon" href="https://www.midjourney.com/favicon.ico">
+<base href="http://212.47.248.129:8172/">
+<div id=input>
+  <select><option value=1019305731196997743>Testing</option></select>
+  <input placeholder=Prefix>
+  <input id=term placeholder=Prompt>
+  <input placeholder=Suffix>
+  <button>Go!</button>
+</div>
+<div id=search>
+  <input placeholder=Filter>
+  <select><option>10</option><option>50</option><option>250</option><option>1000</option><option>5000</option></select>
+</div>
+<div id=queueSection class="empty">
+  <h2 id=queueHeader>Queue (<span id="queued">0</span> waiting / <span id="sent">0</span> sent)</h2>
+  <ol id=queue reversed></ol>
+</div>
+<div id=errorSection class="empty">
+  <h2 id=errorHeader><span id="errors">0</span> Errors</h2>
+  <ul id=errorList></ul>
+</div>
+<h2 id=jobsHeader>Completed Jobs</h2>
+<div id=list></div>
+<button id=reload>Reload all results</button>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #333;
+    color: #999;
+  }
+  #input, #search {
+    margin: 1em;
+  }
+  #queueSection.empty,
+  #queueSection.collapse #queue, 
+  #errorSection.empty,
+  #errorSection.collapse #errorList {
+    display: none;
+  }
+  li {
+    color: #ccc;
+  }
+  li.error {
+    background-color: #600;
+  }
+  li.timeout {
+    color: #666;
+  }
+  li.sent {
+    color: #090;
+  }
+  .images {
+    display:flex;
+    flex-flow: row wrap;
+    justify-content: center;
+    alighn-items: center;
+  }
+  .image {
+    position: relative;
+    min-width: 15vmin;
+    min-height: 15vmin;
+  }
+  .image a {
+    display: block;
+  }
+  img {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100vh;
+    display: block;
+  }
+  .image .buttons {
+    position: absolute;
+    bottom: 1vmin;
+    right: 1vmin;
+  }
+  .image .buttons button {
+    font-size: 4vmin;
+    height: 5vmin;
+    width: 5vmin;
+    opacity: 0.5;
+  }
+  .image .buttons button.pressed {
+    opacity: 1;
+  }
+  p, h2 {
+    padding: .5rem;
+    margin: .5rem;
+  }
+  p {
+    color: #000;
+    background-color: #666;
+  }
+  .images-2 .image {
+    max-width: 50%;
+  }
+  .images-4 .image {
+    max-width: 25%;
+  }
+  @media (max-width:940px) {
+    #input > *, #search > * {
+      display: block;
+    }
+  }
+  @media (max-width:767px) {
+    /* default image size is 256x256. Switches to 2x2 display when too narrow for 3 across. */
+    .images-4 .image {
+      max-width: 50%;
+    }
+    .images-4 img {
+      max-height: 50vh;
+    }
+  }
+</style>
+<script>
+  let jobs = JSON.parse(localStorage.getItem('jobs') || '[]');
+  let queue = [];
+
+  function $(selector, parent) {
+    return (parent || document).querySelector(selector);
+  }
+
+  function $a(selector, parent) {
+    return (parent || document).querySelectorAll(selector);
+  }
+
+  async function fetchJobs(all=false) {
+    let data = null;
+    if(all)
+      data = { jobs: await (await fetch(`/jobs`)).json() };
+    else
+      data = await (await fetch(`/jobs/${jobs.length ? jobs[0].t : 0}`)).json();
+
+    if(data.jobs.length) {
+      let newJobs = 0;
+      for(const job of data.jobs) {
+        if(!jobs.filter(j=>j.i==job.i).length) {
+          jobs.push(job);
+          ++newJobs;
+        }
+      }
+      if(newJobs) {
+        jobs.sort((a,b)=>+new Date(b.t) - +new Date(a.t));
+        updateImageList();
+        localStorage.setItem('jobs', JSON.stringify(jobs));
+      }
+    }
+    if(!all) {
+      queue = data.queue;
+      queue.sort((a,b)=>+new Date(b.timeAdded) - +new Date(a.timeAdded));
+      updateQueue();
+    }
+  }
+
+  function updateQueue() {
+    let counts = {queued:0,sent:0,errors:0};
+    $('#queue').innerHTML = '';
+    $('#errorList').innerHTML = '';
+    for(const entry of queue.sort((a,b)=>b.timeAdded-a.timeAdded)) {
+      const entryDOM = document.createElement('li');
+      entryDOM.className = entry.status;
+      const references = jobs.filter(j=>j.i==entry.reference);
+      entryDOM.innerText = entry.func == 'imagine' ? entry.params[1] : (references.length ? references[0].c : '<reference not found>') + " -- " + entry.params[0];
+      entryDOM.innerText += ` (${entry.status}${entry.result ? ' -- '+entry.result : ''})`;
+      if(entry.status == 'queued' || entry.status == 'sent') {
+        counts[entry.status] += 1;
+	$('#queue').append(entryDOM);
+      } else {
+        counts.errors += 1;
+        $('#errorList').append(entryDOM);
+      }
+    }
+    $('#queued').innerHTML = counts.queued;
+    $('#sent').innerHTML = counts.sent;
+    $('#errors').innerHTML = counts.errors;
+    if(counts.queued + counts.sent) {
+      $('#queueSection').classList.remove('empty')
+    } else {
+      $('#queueSection').classList.add('empty')
+    }
+    if(counts.errors) {
+      $('#errorSection').classList.remove('empty')
+    } else {
+      $('#errorSection').classList.add('empty')
+    }
+  }
+
+  function updateImageList() {
+    $('#list').innerHTML = '';
+    for(const job of jobs.filter(j=>(j.c||'').toLowerCase().match($('#search input').value.toLowerCase())).slice(0, $('#search select').value)) {
+      const jobDOM = document.createElement('div');
+      jobDOM.className = `job ${job.g ? 'grid' : ''}`;
+      jobDOM.id = job.i;
+      jobDOM.innerHTML = `<p></p>`
+      $('p', jobDOM).innerText = job.c;
+      if(job.g)
+        $('p', jobDOM).innerHTML += ` <button data-command="reroll::0::SOLO">R</button>`
+      const imagesDOM = document.createElement('div');
+      imagesDOM.className = `images images-${job.n}`;
+      for(let i=0; i<job.n; ++i) {
+        const imageDOM = document.createElement('div');
+        const url = `https://storage.googleapis.com/dream-machines-output/${job.i}/0_${i}.png`;
+        imageDOM.innerHTML = `<a href="${url}"><img src="${url}"></a>`
+        imageDOM.className = 'image';
+
+        if(job.g) {
+          imageDOM.innerHTML += `
+            <div class=buttons>
+              <button data-command="variation::${+i+1}">V</button>
+              <button data-command="upsample::${+i+1}">U</button>
+            </div>
+          `;
+        } else {
+          imageDOM.innerHTML += `<div class=buttons></div>`;
+          if(!job.c.match(/--up/)) {
+            $('.buttons', imageDOM).innerHTML += `<button data-command="upsample_light::1::SOLO">L</button>`;
+            $('.buttons', imageDOM).innerHTML += `<button data-command="upsample_beta::1::SOLO">B</button>`;
+            $('.buttons', imageDOM).innerHTML += `<button data-command="remaster::1::SOLO">R</button>`;
+          }
+          $('.buttons', imageDOM).innerHTML += `<button data-command="variation::1::SOLO">V</button>`;
+        }
+
+        imagesDOM.appendChild(imageDOM);
+      }
+      jobDOM.appendChild(imagesDOM);
+
+      for(const button of $a('button', jobDOM)) {
+        button.onclick = function() {
+          fetch(`/button/${encodeURIComponent(button.dataset.command)}/${job.i}`);
+          button.classList.add('pressed');
+          fetchJobs();
+        };
+      }
+
+      $('#list').appendChild(jobDOM);
+    }
+  }
+
+  async function updateThreads() {
+    const selected = localStorage.getItem('channel') || '1019305731196997743';
+    $('#input select').innerHTML = '';
+    for(const thread of (await (await fetch(`/threads`)).json()).threads)
+      $('#input select').innerHTML += `<option value=${thread.id} ${thread.id == selected ? 'selected' : ''}>${thread.name}</option>`;
+  }
+
+  window.onload = function() {
+    $('#input select').value = localStorage.getItem('channel') || '1019305731196997743';
+
+    updateThreads();
+    fetchJobs();
+
+    $('[placeholder=Prefix]').value = localStorage.getItem('prefix');
+    $('[placeholder=Suffix]').value = localStorage.getItem('suffix');
+    $('#input select').value = localStorage.getItem('channel') || '1019305731196997743';
+    if(jobs.length)
+      updateImageList();
+    else
+      setTimeout(_=>fetchJobs(true), 100);
+  };
+
+  setInterval(fetchJobs, 5000);
+
+  $('#input button').onclick = function() {
+    localStorage.setItem('prefix', $('[placeholder=Prefix]').value);
+    localStorage.setItem('suffix', $('[placeholder=Suffix]').value);
+    localStorage.setItem('channel', $('#input select').value);
+    const prompt = $('[placeholder=Prefix]').value + ' ' + $('#term').value + ' ' + $('[placeholder=Suffix]').value;
+    fetch(`/imagine/${encodeURIComponent($('#input select').value)}/${encodeURIComponent(prompt.trim())}`);
+    $('#term').value = '';
+    fetchJobs();
+  }
+  $('#term').onkeydown = function(e) {
+    if(e.keyCode == 13)
+      $('#input button').click();
+  }
+  $('#search input').onkeyup = updateImageList;
+  $('#search select').onchange = updateImageList;
+  $('#reload').onclick = _=>fetchJobs(true);
+  $('#queueHeader').onclick = _=>$('#queueSection').classList.toggle('collapse');
+  $('#errorHeader').onclick = _=>$('#errorSection').classList.toggle('collapse');
+</script>
