@@ -4,15 +4,15 @@
 <link rel="shortcut icon" href="https://www.midjourney.com/favicon.ico">
 <base href="http://212.47.248.129:8172/">
 <div id=input class=row>
-<div id=fullPrompt class=row>
-  <input placeholder=Prefix>
-  <input id=term placeholder=Prompt>
-  <input placeholder=Suffix>
-</div>
-<div class="row staticWidth">
-  <select><option value=1019305731196997743>Testing</option></select>
-  <button>Go!</button>
-</div>
+  <div id=fullPrompt class=row>
+    <input placeholder=Prefix>
+    <input id=term placeholder=Prompt>
+    <input placeholder=Suffix>
+  </div>
+  <div class="row staticWidth">
+    <select><option value=1019305731196997743>Testing</option></select>
+    <button>Go!</button>
+  </div>
 </div>
 <div id=queueSection class="collapsible collapse empty">
   <h2 id=queueHeader>Queue (<span id="queued">0</span> waiting / <span id="sent">0</span> sent)</h2>
@@ -22,15 +22,15 @@
   <h2 id=errorHeader>Errors (<span id="errors">0</span> errors / <span id="timeout">0</span> timed out)</h2>
   <ul id=errorList></ul>
 </div>
-<div id=jobsHeader class=row> 
+<div id=search class=row> 
   <h2>Completed Jobs</h2>
-  <div id=search class=row>
-    <input placeholder=Filter>
     <div class="row staticWidth">
-      <select><option>10</option><option>50</option><option>250</option><option>1000</option><option>5000</option></select>
       <div class="staticWidth"><input type=checkbox id=allThreads checked><label for=allThreads> All threads</label></div>
+      <div class="staticWidth"><input type=checkbox id=upscale checked><label for=upscale> Upscales</label></div>
+      <div class="staticWidth"><input type=checkbox id=grid checked><label for=grid> Girds</label></div>
     </div>
-  </div>
+    <select><option>10</option><option>50</option><option>250</option><option>1000</option><option>5000</option></select>
+    <input id=filter placeholder=Filter>
 </div>
 <div id=list></div>
 <button id=reload>Reload all results</button>
@@ -50,7 +50,8 @@
     margin-left: 2rem;
   }
   h2 {
-    min-width: 50%;
+    min-width: 10em;
+    flex-grow: 0;
   }
   .row {
     display: flex;
@@ -68,7 +69,7 @@
     gap: 0;
     min-width: 36rem;
   }
-  #fullPromt > * {
+  #fullPromt > *, #filter {
     flex-basis: 12rem;
   }
   #term {
@@ -253,8 +254,12 @@
     $('#list').innerHTML = '';
 
     const filter = $('#search input').value.toLowerCase();
+    const thread = $('#input select').value;
+    const all = $('#allThreads').checked;
+    const up = $('#upscale').checked;
+    const grid = $('#grid').checked;
 
-    for(const job of jobs.filter(j=>(j.c||'').toLowerCase().match(filter) && ($('#allThreads').checked || j.x==$('#input select').value)).slice(0, $('#search select').value)) {
+    for(const job of jobs.filter(j=>(j.c||'').toLowerCase().match(filter) && (all || j.x==thread) && (j.n>1 ? grid : up)).slice(0, $('#search select').value)) {
       const jobDOM = document.createElement('div');
       jobDOM.className = `job ${job.g ? 'grid' : ''}`;
       jobDOM.id = job.i;
@@ -347,7 +352,7 @@
   }
   $('#search input').onkeyup = updateImageList;
   $('#search select').onchange = updateImageList;
-  $('#search [type=checkbox]').onchange = updateImageList;
+  $a('#search [type=checkbox]').forEach(_=>_.onchange = updateImageList);
   $('#input select').onchange = updateImageList;
 
   $('#reload').onclick = function() {
