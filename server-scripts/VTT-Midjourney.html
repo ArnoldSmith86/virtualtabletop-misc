@@ -2,38 +2,77 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=1">
 <title>VTT Midjourney</title>
 <link rel="shortcut icon" href="https://www.midjourney.com/favicon.ico">
-<div id=input>
-  <select><option value=1019305731196997743>Testing</option></select>
+<base href="http://212.47.248.129:8172/">
+<div id=input class=row>
+<div id=fullPrompt class=row>
   <input placeholder=Prefix>
   <input id=term placeholder=Prompt>
   <input placeholder=Suffix>
+</div>
+<div class="row staticWidth">
+  <select><option value=1019305731196997743>Testing</option></select>
   <button>Go!</button>
 </div>
-<div id=search>
-  <input placeholder=Filter>
-  <select><option>10</option><option>50</option><option>250</option><option>1000</option><option>5000</option></select>
-  <input type=checkbox id=allThreads><label for=allThreads> All threads</label>
 </div>
-<div id=queueSection class="empty">
+<div id=queueSection class="collapsible collapse empty">
   <h2 id=queueHeader>Queue (<span id="queued">0</span> waiting / <span id="sent">0</span> sent)</h2>
   <ol id=queue reversed></ol>
 </div>
-<div id=errorSection class="empty">
-  <h2 id=errorHeader><span id="errors">0</span> Errors</h2>
+<div id=errorSection class="collapsible collapse empty">
+  <h2 id=errorHeader>Errors (<span id="errors">0</span> errors / <span id="timeout">0</span> timed out)</h2>
   <ul id=errorList></ul>
 </div>
-<h2 id=jobsHeader>Completed Jobs</h2>
+<div id=jobsHeader class=row> 
+  <h2>Completed Jobs</h2>
+  <div id=search class=row>
+    <input placeholder=Filter>
+    <div class="row staticWidth">
+      <select><option>10</option><option>50</option><option>250</option><option>1000</option><option>5000</option></select>
+      <div class="staticWidth"><input type=checkbox id=allThreads checked><label for=allThreads> All threads</label></div>
+    </div>
+  </div>
+</div>
 <div id=list></div>
 <button id=reload>Reload all results</button>
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
+  :root {
     background-color: #333;
     color: #999;
   }
-  #input, #search {
-    margin: 1em;
+  *, #list {
+    margin: 0;
+    padding: 0;
+  }
+  body > * {
+    margin: .5rem;
+  }
+  li {
+    margin-left: 2rem;
+  }
+  h2 {
+    min-width: 50%;
+  }
+  .row {
+    display: flex;
+    flex-flow: row wrap;
+    gap: .5rem;
+    align-items: baseline;
+  }
+  .row > * {
+    flex-grow: 1;
+  }
+  .row > .staticWidth, .row > select, .row > button {
+    flex-grow: 0;
+  }
+  #fullPrompt {
+    gap: 0;
+    min-width: 36rem;
+  }
+  #fullPromt > * {
+    flex-basis: 12rem;
+  }
+  #term {
+    flex-grow: 5;
   }
   #queueSection.empty,
   #queueSection.collapse #queue,
@@ -41,8 +80,15 @@
   #errorSection.collapse #errorList {
     display: none;
   }
-  li {
-    color: #ccc;
+  .collapsible h2 {
+    font-size: 1.2rem;
+  }
+  .collapsible h2::after {
+    font-size: .8rem;
+    content: " [click to hide]"
+  }
+  .collapse h2::after {
+    content: " [click to show]"
   }
   li.error {
     background-color: #600;
@@ -88,12 +134,10 @@
   .image .buttons button.pressed {
     opacity: 1;
   }
-  p, h2 {
-    padding: .5rem;
-    margin: .5rem;
-  }
-  p {
+  #list p {
     color: #000;
+    margin: .5rem 0;
+    padding: .5rem;
     background-color: #666;
   }
   .images-2 .image {
@@ -102,9 +146,17 @@
   .images-4 .image {
     max-width: 25%;
   }
-  @media (max-width:940px) {
-    #input > *, #search > * {
-      display: block;
+  @media (max-width:60rem) {
+    #fullPrompt {
+      min-width: 100%;
+    }
+  }
+  @media (max-width:37rem) {
+    #fullPrompt {
+      flex-flow: column;
+    }
+    #fullPrompt > * {
+      width: 100%;
     }
   }
   @media (max-width:767px) {
@@ -158,7 +210,7 @@
   }
 
   function updateQueue() {
-    let counts = {queued:0,sent:0,errors:0};
+    let counts = {queued:0,sent:0,timeout:0,error:0};
     $('#queue').innerHTML = '';
     $('#errorList').innerHTML = '';
     for(const entry of queue.sort((a,b)=>b.timeAdded-a.timeAdded)) {
@@ -167,17 +219,24 @@
       const references = jobs.filter(j=>j.i==entry.reference);
       entryDOM.innerText = entry.func == 'imagine' ? entry.params[1] : (references.length ? references[0].c : '<reference not found>') + " -- " + entry.params[0];
       entryDOM.innerText += ` (${entry.status}${entry.result ? ' -- '+entry.result : ''})`;
-      if(entry.status == 'queued' || entry.status == 'sent') {
+      if(counts.hasOwnProperty(entry.status)) {
         counts[entry.status] += 1;
-  $('#queue').append(entryDOM);
       } else {
-        counts.errors += 1;
+        counts.error += 1;
+      }
+      switch(entry.status) {
+      case 'queued':
+      case 'sent':
+        $('#queue').append(entryDOM);
+        break;
+      default:
         $('#errorList').append(entryDOM);
       }
     }
     $('#queued').innerHTML = counts.queued;
     $('#sent').innerHTML = counts.sent;
-    $('#errors').innerHTML = counts.errors;
+    $('#timeout').innerHTML = counts.timeout;
+    $('#errors').innerHTML = counts.error;
     if(counts.queued + counts.sent) {
       $('#queueSection').classList.remove('empty')
     } else {
