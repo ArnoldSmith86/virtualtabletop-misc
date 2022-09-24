@@ -246,7 +246,7 @@
     } else {
       $('#queueSection').classList.add('empty')
     }
-    if(counts.errors) {
+    if(counts.error + counts.timeout) {
       $('#errorSection').classList.remove('empty')
     } else {
       $('#errorSection').classList.add('empty')
