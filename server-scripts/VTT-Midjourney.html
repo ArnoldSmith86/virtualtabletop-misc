@@ -2,7 +2,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=1">
 <title>VTT Midjourney</title>
 <link rel="shortcut icon" href="https://www.midjourney.com/favicon.ico">
-<base href="http://212.47.248.129:8172/">
 <div id=input>
   <select><option value=1019305731196997743>Testing</option></select>
   <input placeholder=Prefix>
@@ -13,6 +12,7 @@
 <div id=search>
   <input placeholder=Filter>
   <select><option>10</option><option>50</option><option>250</option><option>1000</option><option>5000</option></select>
+  <input type=checkbox id=allThreads><label for=allThreads> All threads</label>
 </div>
 <div id=queueSection class="empty">
   <h2 id=queueHeader>Queue (<span id="queued">0</span> waiting / <span id="sent">0</span> sent)</h2>
@@ -36,7 +36,7 @@
     margin: 1em;
   }
   #queueSection.empty,
-  #queueSection.collapse #queue, 
+  #queueSection.collapse #queue,
   #errorSection.empty,
   #errorSection.collapse #errorList {
     display: none;
@@ -169,7 +169,7 @@
       entryDOM.innerText += ` (${entry.status}${entry.result ? ' -- '+entry.result : ''})`;
       if(entry.status == 'queued' || entry.status == 'sent') {
         counts[entry.status] += 1;
-	$('#queue').append(entryDOM);
+  $('#queue').append(entryDOM);
       } else {
         counts.errors += 1;
         $('#errorList').append(entryDOM);
@@ -192,7 +192,10 @@
 
   function updateImageList() {
     $('#list').innerHTML = '';
-    for(const job of jobs.filter(j=>(j.c||'').toLowerCase().match($('#search input').value.toLowerCase())).slice(0, $('#search select').value)) {
+
+    const filter = $('#search input').value.toLowerCase();
+
+    for(const job of jobs.filter(j=>(j.c||'').toLowerCase().match(filter) && ($('#allThreads').checked || j.x==$('#input select').value)).slice(0, $('#search select').value)) {
       const jobDOM = document.createElement('div');
       jobDOM.className = `job ${job.g ? 'grid' : ''}`;
       jobDOM.id = job.i;
@@ -270,9 +273,14 @@
     localStorage.setItem('suffix', $('[placeholder=Suffix]').value);
     localStorage.setItem('channel', $('#input select').value);
     const prompt = $('[placeholder=Prefix]').value + ' ' + $('#term').value + ' ' + $('[placeholder=Suffix]').value;
-    fetch(`/imagine/${encodeURIComponent($('#input select').value)}/${encodeURIComponent(prompt.trim())}`);
-    $('#term').value = '';
-    fetchJobs();
+    const banned = prompt.match(/\b(🍆|🍑|🤢|😏|adult actress|adult industry|adult movie|ahegao|amniotic sack|amoruos|areola|arse|Asa Akira|ass|badonkers|ball gag|bare chest|bare midriff|bare woman|bastard|bawdy|bbw|bdsm|beheaded|belle delphine|belly button|between her legs|big ass|big black|blister|blood,|blow job|blumpkin|Bob's|body horror|bodypaint|bondage|boobs|booty|bosom|boudoir|Braless|breast|breastfeeding|Breasts|breeding|brothel|bum|busty|butt|buxom|cadaver|cannibal|car crash|cat|chairman mao|cheeks|chest press|chest pressed|chesty|cleavage|clunge|cocaine|cock|coitus|completely exposed|condom|coon|corpsez|cp|crap|creampie|cronenberg|crucified|crucifixion|cuckold|cum|cut|cutting|darfing|deepfake|dick|dildo|disturbing|dobonhonkeros|doggy style|domination|dominatrix|down Syndrome|dyke|e621|erotic|escort|Eva Elfie|executionsy|exhibitionism|exposed chest|fanny|fart|farts|fascist|feasting|femal body|female body|femboy|fetish|fetus|Fingering|firently|firingid|flesh|fleshy|Fuck|fucking|full frontal|futanari|g-string|gabbie carter|garrot|girentry|girth|girthy|goatse|gore|gory|gr|gravure idol|gruesome|guro|guts|gypsy|gyroy|harem|harlot|Hegre Art|heilx|heroin|Hitler|holocaust|homo|honkers|Hooker|hot chick|hot girl|human centipede|human skin|humping|in the shower|inapporpriate|inappropriate|incest|infected|infection|infested|intercourse|internal organs|Invisible Clothes|jav|jerk off|Jinping|jirently|kill|killing|killings|kinbaku|kinky|knob|knockers|labia|laced|Lana Rhoades|large chest|legs spread|lemon party|lena paul|lewd|libidinous|Licentious|lingerie|Lolita|lovemaking|lust|lusty|maggots|making love|mammaries|massacre|mating|meth|micro bikini|microbikini|microkini|milf|milkers|minge|mommy milker|mucus|naked|nasty|naturist|naughty|nazi|negligee|nig nog|nigger|nipple|No cloth|no clothes|no shirt|nubile|nude|nudity|nutsack|nuude|onlyfans|oppai|organs|orgasmic|page 3|panties|parasite|parasites|pecker|pene|penetration|penis|perky|petite|phallus|pidor пидарас, пидарасина|pinup|piss|plane crash|pleasure|pleasures|pole dancing|poon|poop|porn|prick|Prophet Mohammed|prostitute|provocative|pubic|puking|pus|puss|pussy писька|queef|rape|rated x|rectum|reproduce|reproductive|reticulum|ribald|rimming|risqué|round chest|rule34|sadism|sadist|sadistic|salacious|Sasha Grey|scantily clad|schlong|scrotum|seducing|seductive|semen|sensual|sex|sexy|shag|shemale|shibari|shirtless|shit|shitty|showering|skank|skimpy|skinless|skinny dipping|slaughter|slave|spanking|spic|splooge|Strip Pole|stripped|succubus|suggestive|sultry|surgery|swinger|Tainted Love|take off clothes|takes of her underwear|takes of his underwear|taking a shower|tearing|teratoma|testicles|thicc|thirst trap|thong|thot|threesome|tiddy|tiddies|Tied Up|tig ol biddies|tit|tits|titillating|titty|titties|tittays|torture|transparent clothes|trap|tresherous|tresherousy|trypophobia|turd|tush|twerk|twerks|twerking|twink|twitter|unclad|unclothed|uncouth|underboob|underwear|Undies|Undies Off|undress|undressing|UTI|vaccine|vagina|vein|veiny|venereal|vile|viscera|visceral|vivisection|voluptuous|vomit|vore|wang|wank|wart|warty|waygert|wearing invisible|wearing nothing|well endowed|wet t-shirt|wetback|whore|whorehouse|wiener|willy|wincest|with no shirt|without anything|wound|x-rated|xxx|Yaoi|Yuri|Zedong|Zero clothes)\b/i);
+    if(banned) {
+      alert(`The word "${banned[0]}" is banned.`);
+    } else {
+      fetch(`/imagine/${encodeURIComponent($('#input select').value)}/${encodeURIComponent(prompt.trim())}`);
+      $('#term').value = '';
+      fetchJobs();
+    }
   }
   $('#term').onkeydown = function(e) {
     if(e.keyCode == 13)
@@ -280,7 +288,13 @@
   }
   $('#search input').onkeyup = updateImageList;
   $('#search select').onchange = updateImageList;
-  $('#reload').onclick = _=>fetchJobs(true);
+  $('#search [type=checkbox]').onchange = updateImageList;
+  $('#input select').onchange = updateImageList;
+
+  $('#reload').onclick = function() {
+    jobs = [];
+    fetchJobs(true);
+  };
   $('#queueHeader').onclick = _=>$('#queueSection').classList.toggle('collapse');
   $('#errorHeader').onclick = _=>$('#errorSection').classList.toggle('collapse');
 </script>
