@@ -10,7 +10,7 @@
     <input placeholder=Suffix>
   </div>
   <div class="row staticWidth">
-    <select><option value=1019305731196997743>Testing</option></select>
+    <select></select>
     <button>Go!</button>
   </div>
 </div>
@@ -173,6 +173,7 @@
 <script>
   let jobs = JSON.parse(localStorage.getItem('jobs') || '[]');
   let queue = [];
+  let threads = [];
 
   function $(selector, parent) {
     return (parent || document).querySelector(selector);
@@ -218,8 +219,10 @@
       const entryDOM = document.createElement('li');
       entryDOM.className = entry.status;
       const references = jobs.filter(j=>j.i==entry.reference);
-      entryDOM.innerText = entry.func == 'imagine' ? entry.params[1] : (references.length ? references[0].c : '<reference not found>') + " -- " + entry.params[0];
-      entryDOM.innerText += ` (${entry.status}${entry.result ? ' -- '+entry.result : ''})`;
+      const threadID = entry.func == 'imagine' ? entry.params[0] : (references.length ? references[0].x : null);
+      entryDOM.innerHTML = threads.filter(t=>t.id==threadID).reduce((_,t)=>'<span class=thread>'+t.name+':</span> ', '');
+      entryDOM.innerHTML += entry.func == 'imagine' ? entry.params[1] : (references.length ? references[0].c : '<reference not found>') + " -- " + entry.params[0];
+      entryDOM.innerHTML += ` (${entry.status}${entry.result ? ' -- '+entry.result : ''})`;
       if(counts.hasOwnProperty(entry.status)) {
         counts[entry.status] += 1;
       } else {
@@ -263,8 +266,7 @@
       const jobDOM = document.createElement('div');
       jobDOM.className = `job ${job.g ? 'grid' : ''}`;
       jobDOM.id = job.i;
-      jobDOM.innerHTML = `<p></p>`
-      $('p', jobDOM).innerText = job.c;
+      jobDOM.innerHTML = '<p>'+threads.filter(t=>t.id==job.x).reduce((_,t)=>'<span class=thread>'+t.name+':</span> ', '')+job.c+'</p>';
       if(job.g)
         $('p', jobDOM).innerHTML += ` <button data-command="reroll::0::SOLO">R</button>`
       const imagesDOM = document.createElement('div');
@@ -310,9 +312,18 @@
 
   async function updateThreads() {
     const selected = localStorage.getItem('channel') || '1019305731196997743';
+    threads = (await (await fetch(`/threads`)).json()).threads.map(_=>{return {id:_.id,name:_.name}});
     $('#input select').innerHTML = '';
-    for(const thread of (await (await fetch(`/threads`)).json()).threads)
+    for(const thread of threads)
       $('#input select').innerHTML += `<option value=${thread.id} ${thread.id == selected ? 'selected' : ''}>${thread.name}</option>`;
+    updateImageList();
+    updateQueue();
+  }
+
+  function updatePresets() {
+    const thread = $('#input select').value;
+    $('[placeholder=Prefix]').value = localStorage.getItem('prefix'+thread) || localStorage.getItem('prefix');
+    $('[placeholder=Suffix]').value = localStorage.getItem('suffix'+thread) || localStorage.getItem('suffix');
   }
 
   window.onload = function() {
@@ -321,9 +332,8 @@
     updateThreads();
     fetchJobs();
 
-    $('[placeholder=Prefix]').value = localStorage.getItem('prefix');
-    $('[placeholder=Suffix]').value = localStorage.getItem('suffix');
     $('#input select').value = localStorage.getItem('channel') || '1019305731196997743';
+    updatePresets();
     if(jobs.length)
       updateImageList();
     else
@@ -333,10 +343,15 @@
   setInterval(fetchJobs, 5000);
 
   $('#input button').onclick = function() {
-    localStorage.setItem('prefix', $('[placeholder=Prefix]').value);
-    localStorage.setItem('suffix', $('[placeholder=Suffix]').value);
-    localStorage.setItem('channel', $('#input select').value);
-    const prompt = $('[placeholder=Prefix]').value + ' ' + $('#term').value + ' ' + $('[placeholder=Suffix]').value;
+    const thread = $('#input select').value;
+    const prefix = $('[placeholder=Prefix]').value;
+    const suffix = $('[placeholder=Suffix]').value;
+    localStorage.setItem('prefix', prefix);
+    localStorage.setItem('prefix'+thread, prefix);
+    localStorage.setItem('suffix', suffix);
+    localStorage.setItem('suffix'+thread, suffix);
+    localStorage.setItem('channel', thread);
+    const prompt = prefix + ' ' + $('#term').value + ' ' + suffix;
     const banned = prompt.match(/\b(🍆|🍑|🤢|😏|adult actress|adult industry|adult movie|ahegao|amniotic sack|amoruos|areola|arse|Asa Akira|ass|badonkers|ball gag|bare chest|bare midriff|bare woman|bastard|bawdy|bbw|bdsm|beheaded|belle delphine|belly button|between her legs|big ass|big black|blister|blood,|blow job|blumpkin|Bob's|body horror|bodypaint|bondage|boobs|booty|bosom|boudoir|Braless|breast|breastfeeding|Breasts|breeding|brothel|bum|busty|butt|buxom|cadaver|cannibal|car crash|cat|chairman mao|cheeks|chest press|chest pressed|chesty|cleavage|clunge|cocaine|cock|coitus|completely exposed|condom|coon|corpsez|cp|crap|creampie|cronenberg|crucified|crucifixion|cuckold|cum|cut|cutting|darfing|deepfake|dick|dildo|disturbing|dobonhonkeros|doggy style|domination|dominatrix|down Syndrome|dyke|e621|erotic|escort|Eva Elfie|executionsy|exhibitionism|exposed chest|fanny|fart|farts|fascist|feasting|femal body|female body|femboy|fetish|fetus|Fingering|firently|firingid|flesh|fleshy|Fuck|fucking|full frontal|futanari|g-string|gabbie carter|garrot|girentry|girth|girthy|goatse|gore|gory|gr|gravure idol|gruesome|guro|guts|gypsy|gyroy|harem|harlot|Hegre Art|heilx|heroin|Hitler|holocaust|homo|honkers|Hooker|hot chick|hot girl|human centipede|human skin|humping|in the shower|inapporpriate|inappropriate|incest|infected|infection|infested|intercourse|internal organs|Invisible Clothes|jav|jerk off|Jinping|jirently|kill|killing|killings|kinbaku|kinky|knob|knockers|labia|laced|Lana Rhoades|large chest|legs spread|lemon party|lena paul|lewd|libidinous|Licentious|lingerie|Lolita|lovemaking|lust|lusty|maggots|making love|mammaries|massacre|mating|meth|micro bikini|microbikini|microkini|milf|milkers|minge|mommy milker|mucus|naked|nasty|naturist|naughty|nazi|negligee|nig nog|nigger|nipple|No cloth|no clothes|no shirt|nubile|nude|nudity|nutsack|nuude|onlyfans|oppai|organs|orgasmic|page 3|panties|parasite|parasites|pecker|pene|penetration|penis|perky|petite|phallus|pidor пидарас, пидарасина|pinup|piss|plane crash|pleasure|pleasures|pole dancing|poon|poop|porn|prick|Prophet Mohammed|prostitute|provocative|pubic|puking|pus|puss|pussy писька|queef|rape|rated x|rectum|reproduce|reproductive|reticulum|ribald|rimming|risqué|round chest|rule34|sadism|sadist|sadistic|salacious|Sasha Grey|scantily clad|schlong|scrotum|seducing|seductive|semen|sensual|sex|sexy|shag|shemale|shibari|shirtless|shit|shitty|showering|skank|skimpy|skinless|skinny dipping|slaughter|slave|spanking|spic|splooge|Strip Pole|stripped|succubus|suggestive|sultry|surgery|swinger|Tainted Love|take off clothes|takes of her underwear|takes of his underwear|taking a shower|tearing|teratoma|testicles|thicc|thirst trap|thong|thot|threesome|tiddy|tiddies|Tied Up|tig ol biddies|tit|tits|titillating|titty|titties|tittays|torture|transparent clothes|trap|tresherous|tresherousy|trypophobia|turd|tush|twerk|twerks|twerking|twink|twitter|unclad|unclothed|uncouth|underboob|underwear|Undies|Undies Off|undress|undressing|UTI|vaccine|vagina|vein|veiny|venereal|vile|viscera|visceral|vivisection|voluptuous|vomit|vore|wang|wank|wart|warty|waygert|wearing invisible|wearing nothing|well endowed|wet t-shirt|wetback|whore|whorehouse|wiener|willy|wincest|with no shirt|without anything|wound|x-rated|xxx|Yaoi|Yuri|Zedong|Zero clothes)\b/i);
     if(banned) {
       alert(`The word "${banned[0]}" is banned.`);
@@ -351,9 +366,8 @@
       $('#input button').click();
   }
   $('#search input').onkeyup = updateImageList;
-  $('#search select').onchange = updateImageList;
-  $a('#search [type=checkbox]').forEach(_=>_.onchange = updateImageList);
-  $('#input select').onchange = updateImageList;
+  $a('select, [type=checkbox]').forEach(_=>_.addEventListener('change', updateImageList));
+  $('#input select').addEventListener('change', updatePresets);
 
   $('#reload').onclick = function() {
     jobs = [];
