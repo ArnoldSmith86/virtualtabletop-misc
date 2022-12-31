@@ -1,0 +1,1 @@
+Press F1, call VTT init. You should be able to edit https://virtualtabletop.io/VScode by selecting its file in VScode.
