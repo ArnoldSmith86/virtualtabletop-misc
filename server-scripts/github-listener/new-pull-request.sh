@@ -6,6 +6,7 @@ backup=~/PR-test-servers/backups/$1.tar.xz
 
 libraries=~/libraries
 modules=~/modules
+assets=~/assets
 
 
 mkdir -p $dir
@@ -48,12 +49,10 @@ if [ -e "$backup" ]; then
   popd
 fi
 
-[ -h save/assets ] || ln -s ~/virtualtabletop/save/assets save/assets
-
 git fetch --depth 1 origin pull/$1/head:PR
 git checkout PR
 
-if ! [ $1 = 791 ]; then
+if ! [ -e library/games ]; then
   libraryCommit=$(git submodule status library | grep -Po '^.\K[0-9a-f]+')
   if ! [ -d "$libraries/$libraryCommit" ]; then
     mkdir "$libraries"
@@ -65,6 +64,15 @@ if ! [ $1 = 791 ]; then
     rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$libraries"
   fi
   rmdir library
+  ln -s "$libraries/$libraryCommit" library
+else
+  libraryCommit=$(git log -n 1 --pretty=format:%H -- library)
+  if ! [ -d "$libraries/$libraryCommit" ]; then
+    mkdir "$libraries"
+    mv library "$libraries/$libraryCommit"
+    rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$libraries"
+  fi
+  rm -rf library
   ln -s "$libraries/$libraryCommit" library
 fi
 
@@ -85,7 +93,7 @@ if [ -e config.template.json ]; then
       "directories": {
         "library": "library",
         "save": "save",
-        "assets": "save/assets"
+        "assets": "$assets"
       },
 
       "betaServers": {},
@@ -112,5 +120,4 @@ if ! [ -e $backup ]; then
     -d "{\"body\":\"PR-SERVER-BOT: You can play around with it here: $(url $1)/pr-test (or any other room on that server)\n\nAfter merging, a backup will be available at \`https://beta.virtualtabletop.io/editor/PR$1-pr-test\`.\"}"
 fi
 
-rdfind -removeidentinode false -makehardlinks true -makeresultsfile false $dir/../*/assets
 rm "$dir-initializing"
