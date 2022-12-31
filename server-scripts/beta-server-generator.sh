@@ -154,7 +154,10 @@ filterPR_editor() {
 }
 
 filterPR_handpicked() {
-  echo "$1" | grep -qP '1141|1122|1033' || echo Not included in handpicked PRs.
+  id=$1
+  shift
+  [[ "$9" = *npm* ]] && return
+  echo "$id" | grep -qP '1019|1033|1167|1361' || echo Not included in handpicked PRs.
 }
 
 filterPR_stable() {
