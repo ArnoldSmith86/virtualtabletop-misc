@@ -76,6 +76,66 @@ assets = {
 // `https://raw.githubusercontent.com/MacRusher/dobble-generator/master/src/images/animals/${i}.png`
 images = 'alligator,badger,bear,budgie,bumblebee,cat,chicken,cow,crab,cute-hamster,deer,dog,dolphin,dove,elephant,falcon,fish,flamingo,fox,frog,grasshopper,hornet,horse,hummingbird,kangaroo,kiwi-bird,ladybird,leopard,lion,llama,monarch-butterfly,mouse-animal,octopus,orca,owl,panda,parrot,peacock,pig,prawn,puffin-bird,rabbit,rhinoceros,seal,sheep,sloth,snail,snake,squirrel,starfish,stork,swan,turtle,unicorn,whale,wolf,zebra'.split(',').map(i=>assets[i]);
 
+images = [
+  '1199532078_677',
+  '376198957_1413',
+  '-2097872790_1023',
+  '1842903990_1745',
+  '-715072630_1524',
+  '-742340345_1158',
+  '-341849182_890',
+  '-1819395490_1989',
+  '-2094454736_1469',
+  '301857551_1469',
+  '-351098951_1151',
+  '491298702_1589',
+  '800088528_848',
+  '-99297271_1260',
+  '-1910687553_1261',
+  '-672285569_1280',
+  '-521961352_1118',
+  '-1728039607_1132',
+  '510435657_1788',
+  '-1129932455_1145',
+  '-380402457_1372',
+  '-541626973_1297',
+  '173495762_1445',
+  '884433545_1559',
+  '-419290704_1549',
+  '-698361358_2573',
+  '1415921317_1321',
+  '-1413717691_1391',
+  '1678459184_1513',
+  '-391458135_1339',
+  '-450669163_1354',
+  '-1794819143_1208',
+  '601171876_1639',
+  '-1207122392_1851',
+  '-249506588_1036',
+  '1742807061_1047',
+  '-1074259134_1666',
+  '-1263676859_1251',
+  '494594408_1772',
+  '-207782737_1233',
+  '-2083084777_765',
+  '203601074_1323',
+  '-1675817883_2278',
+  '-902173673_1665',
+  '908921431_1709',
+  '1952655742_1445',
+  '2060558806_1260',
+  '214664360_1760',
+  '-601863328_819',
+  '-1621194635_1106',
+  '-731727867_1304',
+  '448610864_909',
+  '-297556760_1522',
+  '-1392697775_1054',
+  '-1663991764_603',
+  '-1460018808_1135',
+  '-137524325_689'
+].map(a=>'/assets/'+a);
+
 // copied from https://github.com/MacRusher/dobble-generator/blob/master/src/api/lib.ts
 
 /**
@@ -166,7 +226,16 @@ console.log(JSON.stringify({
   cardDefaults: {
     width: cardSize,
     height: cardSize,
-    borderRadius: cardSize
+    borderRadius: cardSize,
+    onPileCreation: {
+      handlePosition: 'middle center',
+      handleSize: 80,
+      css: {
+        ' .handle': {
+          'pointer-events': 'none'
+        }
+      }
+    }
   },
   cardTypes: cards,
   faceTemplates: [
