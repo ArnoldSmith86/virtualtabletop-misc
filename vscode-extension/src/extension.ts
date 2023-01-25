@@ -6,13 +6,13 @@ class UrlFileSystemProvider implements vscode.FileSystemProvider {
 	private _emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
 	readonly onDidChangeFile: vscode.Event<vscode.FileChangeEvent[]> = this._emitter.event;
 
-    readDirectory(uri: vscode.Uri): [string, vscode.FileType][] | Thenable<[string, vscode.FileType][]> {
+	readDirectory(uri: vscode.Uri): [string, vscode.FileType][] | Thenable<[string, vscode.FileType][]> {
 		return this.rooms;
 	}
 
 	async readFile(uri: vscode.Uri): Promise<Uint8Array> {
 		return new Promise<Uint8Array>((resolve, reject) => {
-            console.log("GET", 'https://virtualtabletop.io/state'+uri.path);
+			console.log("GET", 'https://virtualtabletop.io/state'+uri.path);
 			https.get('https://virtualtabletop.io/state'+uri.path, (response) => {
 				const data: any[] = [];
 				response.on('data', (chunk) => {
@@ -30,11 +30,11 @@ class UrlFileSystemProvider implements vscode.FileSystemProvider {
 
 	async writeFile(uri: vscode.Uri, content: Uint8Array, options: { create: boolean; overwrite: boolean; }): Promise<void> {
 		if(!this.rooms.filter(e=>e[0]==uri.path).length) {
-            console.log("CREATE", 'https://virtualtabletop.io/state'+uri.path);
-            this.rooms.push([uri.path, vscode.FileType.File]);
-        } else {
+			console.log("CREATE", 'https://virtualtabletop.io/state'+uri.path);
+			this.rooms.push([uri.path, vscode.FileType.File]);
+		} else {
 			return new Promise<void>((resolve, reject) => {
-                console.log("PUT", 'https://virtualtabletop.io/state'+uri.path);
+				console.log("PUT", 'https://virtualtabletop.io/state'+uri.path);
 				const request = https.request('https://virtualtabletop.io/state'+uri.path, { method: 'PUT', headers: { 'Content-Type': 'application/json' } }, (response) => {
 					if (response.statusCode !== 200) {
 						reject(new Error(`Failed to save file: ${response.statusMessage}`));
@@ -75,7 +75,7 @@ class UrlFileSystemProvider implements vscode.FileSystemProvider {
 		throw vscode.FileSystemError.FileNotFound(uri);
 	}
 
-    createDirectory(uri: vscode.Uri): void | Thenable<void> {
+	createDirectory(uri: vscode.Uri): void | Thenable<void> {
 		throw new Error('Method not implemented.');
 	}
 	delete(uri: vscode.Uri, options: { readonly recursive: boolean; }): void | Thenable<void> {
@@ -96,7 +96,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const fileSystemProvider = new UrlFileSystemProvider();
 	context.subscriptions.push(vscode.workspace.registerFileSystemProvider('vtt', fileSystemProvider, { isCaseSensitive: true }));
 	context.subscriptions.push(vscode.commands.registerCommand('vtt.workspaceInit', async (url: string) => {
-        vscode.workspace.updateWorkspaceFolders(0, 0, { uri: vscode.Uri.parse('vtt:/'), name: "VirtualTabletop.io" });
+		vscode.workspace.updateWorkspaceFolders(0, 0, { uri: vscode.Uri.parse('vtt:/'), name: "VirtualTabletop.io" });
 	}));
 }
 
