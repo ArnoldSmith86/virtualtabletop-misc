@@ -61,16 +61,17 @@ if ! [ -e library/games ]; then
       git checkout $libraryCommit
       rm -rf .git
     popd
-    rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$libraries"
+    rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$libraries" &
   fi
   rmdir library
   ln -s "$libraries/$libraryCommit" library
 else
+  git log -n 5 library > _library.log
   libraryCommit=$(git log -n 1 --pretty=format:%H -- library)
   if ! [ -d "$libraries/$libraryCommit" ]; then
     mkdir "$libraries"
     mv library "$libraries/$libraryCommit"
-    rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$libraries"
+    rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$libraries" &
   fi
   rm -rf library
   ln -s "$libraries/$libraryCommit" library
@@ -80,6 +81,7 @@ git status > git-status
 git log --oneline > git-log
 git rev-parse --short HEAD > git-revision
 sed -ri "s#<title>VirtualTabletop.io</title>#<title>PR$1 | $(<git-revision) | VTT</title>#" client/room.html
+sed -ri '/document.title = /d' client/js/main.js
 rm -rf .git
 
 if [ -e config.template.json ]; then
@@ -107,7 +109,7 @@ if ! [ -d "$modules/$modulesHash" ]; then
   mkdir "$modules"
   npm install --prod
   mv node_modules "$modules/$modulesHash"
-  rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$modules"
+  rdfind -removeidentinode false -makehardlinks true -makeresultsfile false "$modules" &
 fi
 cp -la "$modules/$modulesHash" node_modules
 
