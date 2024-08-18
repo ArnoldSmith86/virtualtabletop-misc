@@ -15,6 +15,7 @@ command -v git  || pkg install -y nodejs-lts iproute2 git
 command -v node || pkg install -y nodejs-lts iproute2
 command -v ip   || pkg install -y nodejs-lts
 
+cd
 [ -e virtualtabletop/server.mjs ] || git clone --depth 1 https://github.com/ArnoldSmith86/virtualtabletop
 
 cd virtualtabletop
