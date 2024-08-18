@@ -27,6 +27,7 @@ echo "WILL USE IP $ip"
 echo "ACCESS VIA http://$ip:8272"
 
 sed "s/localhost/$ip/" config.template.json > config.json
-node server.mjs &
-sleep 2
+node server.mjs 2>&1 | tee server.log &
+
+while ! grep Listening server.log; do sleep 2; done
 am start http://$ip:8272
