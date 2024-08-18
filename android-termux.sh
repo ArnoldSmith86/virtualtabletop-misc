@@ -11,9 +11,9 @@ echo
 echo "MAKE SURE YOUR HOTSPOT IS ON"
 echo
 
-command -v git  || pkg install nodejs-lts iproute2 git
-command -v node || pkg install nodejs-lts iproute2
-command -v ip   || pkg install nodejs-lts
+command -v git  || pkg install -y nodejs-lts iproute2 git
+command -v node || pkg install -y nodejs-lts iproute2
+command -v ip   || pkg install -y nodejs-lts
 
 [ -e virtualtabletop/server.mjs ] || git clone --depth 1 https://github.com/ArnoldSmith86/virtualtabletop
 
