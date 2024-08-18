@@ -8,18 +8,31 @@
 # with multiple local phones without any Internet connection.
 
 echo
-echo "MAKE SURE YOUR HOTSPOT IS ON"
+echo "INSTALLING NEEDED PACKAGES"
 echo
 
 command -v git  || pkg install -y nodejs-lts iproute2 git
 command -v node || pkg install -y nodejs-lts iproute2
 command -v ip   || pkg install -y nodejs-lts
 
+echo
+echo "DOWNLOADING VTT"
+echo
+
 cd
 [ -e virtualtabletop/server.mjs ] || git clone --depth 1 https://github.com/ArnoldSmith86/virtualtabletop
-
 cd virtualtabletop
+
+echo
+echo "INSTALLING DEPENDENCIES"
+echo
+
 npm install --omit=dev
+
+echo
+echo "IF YOU WANT TO USE YOUR WIFI HOTSPOT, ENABLE IT NOW! PRESS ENTER TO CONTINUE."
+echo
+read
 
 ip=$(ip address show dev wlan1 | grep -Po "inet \K[0-9.]+" || ip address show dev wlan0 | grep -Po "inet \K[0-9.]+")
 
