@@ -32,7 +32,7 @@ npm install --omit=dev
 echo
 echo "IF YOU WANT TO USE YOUR WIFI HOTSPOT, ENABLE IT NOW! PRESS ENTER TO CONTINUE."
 echo
-read a
+read a < /dev/tty
 
 ip=$(ip address show dev wlan1 | grep -Po "inet \K[0-9.]+" || ip address show dev wlan0 | grep -Po "inet \K[0-9.]+")
 
