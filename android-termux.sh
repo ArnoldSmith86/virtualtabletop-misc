@@ -23,6 +23,8 @@ cd
 [ -e virtualtabletop/server.mjs ] || git clone --depth 1 https://github.com/ArnoldSmith86/virtualtabletop
 cd virtualtabletop
 
+[ -e server.pid ] && kill $(<server.pid)
+
 echo
 echo "INSTALLING DEPENDENCIES"
 echo
@@ -41,6 +43,7 @@ echo "ACCESS VIA http://$ip:8272"
 
 sed "s/localhost/$ip/" config.template.json > config.json
 node server.mjs 2>&1 | tee server.log &
+echo $! > server.pid
 
 while ! grep Listening server.log; do sleep 2; done
 am start http://$ip:8272
