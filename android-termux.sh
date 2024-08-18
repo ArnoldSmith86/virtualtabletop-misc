@@ -1,6 +1,6 @@
 # This script is meant to be executed on Android using Termux:
 # - Install and open https://termux.dev/ on your Android device.
-# - Execute "curl is.gd/vttandroid | sh" (without the quotes).
+# - Execute "curl -L is.gd/vttandroid | sh" (without the quotes).
 
 # It should install and start VTT and launch a browser with a room.
 
