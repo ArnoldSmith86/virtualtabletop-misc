@@ -1,8 +1,19 @@
-echo "MAKE SURE YOUR HOTSPOT IS ON"
+# This script is meant to be executed on Android using Termux:
+# - Install and open https://termux.dev/ on your Android device.
+# - Execute "curl is.gd/vttandroid | sh" (without the quotes).
 
-which git  || pkg install nodejs-lts iproute2 git
-which node || pkg install nodejs-lts iproute2
-which ip   || pkg install nodejs-lts
+# It should install and start VTT and launch a browser with a room.
+
+# You can use this and your phone wifi hotspot to play games
+# with multiple local phones without any Internet connection.
+
+echo
+echo "MAKE SURE YOUR HOTSPOT IS ON"
+echo
+
+command -v git  || pkg install nodejs-lts iproute2 git
+command -v node || pkg install nodejs-lts iproute2
+command -v ip   || pkg install nodejs-lts
 
 [ -e virtualtabletop/server.mjs ] || git clone --depth 1 https://github.com/ArnoldSmith86/virtualtabletop
 
