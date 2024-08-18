@@ -20,7 +20,7 @@ command -v ip   || pkg install -y nodejs-lts
 cd virtualtabletop
 npm install --omit=dev
 
-ip=$(ip address show dev wlan1 || ip address show dev wlan0 | grep -Po "inet \K[0-9.]+")
+ip=$(ip address show dev wlan1 | grep -Po "inet \K[0-9.]+" || ip address show dev wlan0 | grep -Po "inet \K[0-9.]+")
 
 echo "WILL USE IP $ip"
 echo "ACCESS VIA http://$ip:8272"
