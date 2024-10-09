@@ -1,0 +1,8 @@
+{
+    "templatePath": "",
+    "githubToken": "",
+    "githubWebhookSecret": "",
+    "vttAdminURL": "/ADMIN",
+    "port": 3000,
+    "ntfyURL": ""
+}
