@@ -90,8 +90,49 @@ function puppeteerState(req, res) {
 
 // returns a tree of processes, disk usage, and memory usage of the server
 function puppeteerServerStatus(req, res) {
-    exec(`cd "${__dirname}"; df -h .; echo; free -h; echo; ls -ld servers/*/ common/*/*/; echo; tail -n 100 servers/*/*log puppeteer.log; echo; ps axf -o pid,start,args`, (error, stdout, stderr) => {
-        let statusText = '<pre>';
+    exec(`cd "${__dirname}"; df -h .; free -h; ls -ld servers/*/ common/*/*/; tail -n 100 servers/*/*log puppeteer.log; ps axf -o pid,start,args`, (error, stdout, stderr) => {
+        let statusText = '<p><a href="/puppeteer' + config.vttAdminURL + '/errors">View Errors</a> | <a href="https://virtualtabletop.io' + config.vttAdminURL + '">MAIN Server Admin</a></p>';
+        statusText += '<style>.progress-bar { width: 300px; background-color: #e0e0e0; } .progress-bar-fill { height: 20px; background-color: #4CAF50; }</style>';
+        const lines = stdout.split('\n');
+        const dfHeaderLine = lines.find(line => line.startsWith('Filesystem'));
+        const dfDataLine = lines[lines.indexOf(dfHeaderLine) + 1];
+        const memLine = lines.find(line => line.startsWith('Mem:'));
+        function parseHumanReadableSize(size) {
+            const units = ['B', 'K', 'M', 'G', 'T', 'P'];
+            const number = parseFloat(size);
+            const unit = size.replace(number, '').trim();
+            const unitIndex = units.indexOf(unit.charAt(0).toUpperCase());
+            return number * Math.pow(1024, unitIndex);
+        }
+
+        if (dfHeaderLine && dfDataLine) {
+            const headers = dfHeaderLine.split(/\s+/);
+            const data = dfDataLine.split(/\s+/);
+            const usedIndex = headers.indexOf('Used');
+            const availIndex = headers.indexOf('Avail');
+
+            if (usedIndex !== -1 && availIndex !== -1) {
+                const used = data[usedIndex];
+                const avail = data[availIndex];
+                const usedValue = parseHumanReadableSize(used);
+                const availValue = parseHumanReadableSize(avail);
+                const total = usedValue + availValue;
+                const usedPercent = (usedValue / total) * 100;
+                statusText += `<p>Disk Usage:</p><div class="progress-bar"><div class="progress-bar-fill" style="width:${usedPercent.toFixed(2)}%"></div></div>`;
+                statusText += `<p>${used} used / ${avail} available</p>`;
+            }
+        }
+
+        if (memLine) {
+            const [, total, used, free] = memLine.split(/\s+/);
+            const usedValue = parseHumanReadableSize(used);
+            const totalValue = parseHumanReadableSize(total);
+            const usedPercent = (usedValue / totalValue) * 100;
+            statusText += `<p>RAM Usage:</p><div class="progress-bar"><div class="progress-bar-fill" style="width:${usedPercent.toFixed(2)}%"></div></div>`;
+            statusText += `<p>${used} used / ${total} total</p>`;
+        }
+
+        statusText += '<pre>';
         statusText += escapeHTML(stdout);
         statusText += '</pre>';
         res.writeHead(200, { 'Content-Type': 'text/html' });
