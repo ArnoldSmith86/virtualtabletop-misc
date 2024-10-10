@@ -69,8 +69,10 @@ ____EOF
 
     echo '{"state": "1/3 updating git"}' > state.json
     git checkout .
-    git pull
     git checkout main
+    git pull
+
+
     echo '{"state": "2/3 updating dependencies"}' > state.json
     npm install --omit=dev
 
@@ -89,7 +91,7 @@ ____EOF
 
     echo '{"state": "3/3 starting"}' > state.json
     echo "SERVER STARTING - $(date) - $(git rev-parse --short HEAD)" >> server.log
-    curl -G "$NTFY_URL/trigger" \   
+    curl -G "$NTFY_URL/trigger" \
          --data-urlencode "title=VTT Restart" \
          --data-urlencode "message=$(git rev-parse --short HEAD) $(git log -1 --pretty=%B) --- $(df -h . | awk 'NR==2{print $4}')" &
     nohup node server.mjs >> server.log 2>&1 &
