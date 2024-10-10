@@ -4,6 +4,24 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const config = require('./config.json');
 
+// Add this function near the top of the file, after the imports
+function errorNotify(message) {
+    const originalError = console.error;
+    originalError.apply(console, arguments);
+
+    const formattedMessage = Array.from(arguments).join(' ');
+    const encodedMessage = encodeURIComponent(formattedMessage);
+    const command = `curl -H "Title: VTT Puppeteer Error" -H "Priority: high" -d "${encodedMessage}" ${config.ntfyURL}`;
+
+    exec(command, (error, stdout, stderr) => {
+        if (error) {
+            originalError(`Failed to send ntfy notification: ${error}`);
+        }
+    });
+}
+
+// Replace console.error with the new wrapper
+console.error = errorNotify;
 
 if(!fs.existsSync(`${__dirname}/servers`))
     fs.mkdirSync(`${__dirname}/servers`);
@@ -124,6 +142,95 @@ function puppeteerGitHistory(req, res) {
     });
 }
 
+function puppeteerErrors(req, res) {
+    const logPath = `${__dirname}/servers/MAIN/server.log`;
+    const savePath = `${__dirname}/save/MAIN/errors`;
+
+    fs.readFile(logPath, 'utf8', (err, data) => {
+        if (err) {
+            console.error(`Error reading log file: ${err}`);
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Internal Server Error');
+            return;
+        }
+
+        const lines = data.split('\n');
+        let errors = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.includes('ERROR: Client error')) {
+                const match = line.match(/^(\S+) ERROR: Client error (\w+):/);
+                if (match) {
+                    const [, timestamp, id] = match;
+                    const errorFilePath = `${savePath}/${id}.json`;
+
+                    try {
+                        const errorData = JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
+                        const { message, error, userAgent, playerName, ...rest } = errorData;
+
+                        let output = `<b>🖥️ Client Error</b>\n`;
+                        output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
+                        output += `<b>💬 Message:</b>     ${message}\n`;
+                        output += `<b>❌ Error:</b>       ${error}\n`;
+                        output += `<b>🌐 User Agent:</b>  ${userAgent}\n`;
+                        output += `<b>👤 Player Name:</b> ${playerName}\n`;
+
+                        delete rest.html;
+                        delete rest.widgetsState;
+
+                        output += `<details>`;
+                        output += `<summary>Detailed JSON (click to expand)</summary>`;
+                        output += `<pre>${JSON.stringify(rest, null, 2)}</pre>`;
+                        output += `</details>\n\n`;
+
+                        errors.push(output);
+                    } catch (readErr) {
+                        console.error(`Error reading error file ${errorFilePath}: ${readErr}`);
+                    }
+                }
+            } else if (line.trim().startsWith('Error:')) {
+                // NodeJS crash detected
+                let output = `<b>💥 NodeJS Crash</b>\n`;
+
+                // Find the newest timestamp before the error
+                let timestamp = '';
+                for (let k = i - 1; k >= 0; k--) {
+                    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z/.test(lines[k].trim())) {
+                        timestamp = lines[k].trim().split(' ')[0];
+                        break;
+                    }
+                }
+
+                output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
+                output += `<b>❌ Error:</b>       ${line.trim()}\n`;
+                output += `<b>📚 Stack Trace:</b>\n`;
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim().startsWith('at ')) {
+                    const line = lines[j].trim().replace(/^at /, '');
+                    if (line.includes('file://')) {
+                        output += `                ${line.replace(/(file:\/\/\/.*?MAIN\/)/g, '')}\n`;
+                    } else {
+                        output += `                <span style="opacity: 0.3;">${line}</span>\n`;
+                    }
+                    j++;
+                }
+                output += '\n';
+                i = j - 1; // Skip processed lines
+
+                errors.push(output);
+            }
+        }
+
+        // Reverse the order of errors
+        errors.reverse();
+
+        let finalOutput = '<pre>' + errors.join('') + '</pre>';
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(finalOutput);
+    });
+}
+
 function escapeHTML(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -150,7 +257,7 @@ function githubWebhookReceived(req, res) {
                 console.log(new Date().toISOString(), 'GITHUB', req.headers['x-github-event'], payload.action);
 
                 if (req.headers['x-github-event'] === 'push' && payload.ref === 'refs/heads/main') {
-                    call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+                    call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
                 }
 
                 if (req.headers['x-github-event'] === 'pull_request' && payload.action.match(/opened/)) {
@@ -208,7 +315,6 @@ function staticFile(req, res) {
     res.end(file);
 }
 
-
 http.createServer((req, res) => {
     if (req.url === '/puppeteer/webhook' && req.method === 'POST') {
         githubWebhookReceived(req, res);
@@ -220,6 +326,8 @@ http.createServer((req, res) => {
         puppeteerGitHistory(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL) {
         puppeteerServerStatus(req, res);
+    } else if (req.url === '/puppeteer'+config.vttAdminURL+'/errors') {
+        puppeteerErrors(req, res);
     } else if (req.url.match(/^\/static\//)) {
         staticFile(req, res);
     } else if (req.url === '/502') {
@@ -255,6 +363,34 @@ setInterval(() => {
             }
         } catch (e) {
             console.error(`Error checking server log for ${server} (${__dirname}/servers/${server}/server.log): ${e}`);
+        }
+    });
+
+    // Check for client and NodeJS errors in MAIN server
+    const mainLogPath = `${__dirname}/servers/MAIN/server.log`;
+    fs.readFile(mainLogPath, 'utf8', (err, data) => {
+        if (err) {
+            console.error(`Error reading MAIN server log: ${err}`);
+            return;
+        }
+
+        const lines = data.split('\n');
+        const recentLines = lines.slice(-1000); // Check last 1000 lines
+
+        let clientErrors = 0;
+        let nodeJSErrors = 0;
+
+        recentLines.forEach(line => {
+            if (line.includes('ERROR: Client error')) {
+                clientErrors++;
+            } else if (line.trim().startsWith('Error:')) {
+                nodeJSErrors++;
+            }
+        });
+
+        if (clientErrors > 0 || nodeJSErrors > 0) {
+            const message = `VTT Errors Detected:\n${clientErrors} client errors\n${nodeJSErrors} NodeJS errors`;
+            call(`curl -H "Title: VTT Error Alert" -H "Priority: high" -d "${message}" ${config.ntfyURL}`);
         }
     });
 }, 5 * 60 * 1000);
