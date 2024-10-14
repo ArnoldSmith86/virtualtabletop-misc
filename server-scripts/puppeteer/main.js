@@ -214,6 +214,8 @@ function puppeteerErrors(req, res) {
                     const [, timestamp, id] = match;
                     const errorFilePath = `${savePath}/${id}.json`;
 
+                    if(!fs.existsSync(errorFilePath))
+                        continue;
                     try {
                         const errorData = JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
                         const { message, error, userAgent, playerName, ...rest } = errorData;
