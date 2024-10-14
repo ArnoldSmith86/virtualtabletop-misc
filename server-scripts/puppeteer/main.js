@@ -231,7 +231,8 @@ function puppeteerErrors(req, res) {
                         output += `<details>`;
                         output += `<summary>Detailed JSON (click to expand)</summary>`;
                         output += `<pre>${JSON.stringify(rest, null, 2)}</pre>`;
-                        output += `</details>\n\n`;
+                        output += `</details>`;
+                        output += `<a href="/puppeteer${config.vttAdminURL}/error/${id}">View HTML</a>\n\n\n`;
 
                         errors.push(output);
                     } catch (readErr) {
@@ -278,6 +279,18 @@ function puppeteerErrors(req, res) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(finalOutput);
     });
+}
+
+function puppeteerErrorReturnHTML(req, res) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    try {
+        const errorID = req.url.split('/').pop();
+        const errorData = JSON.parse(fs.readFileSync(`${__dirname}/save/MAIN/errors/${errorID}.json`, 'utf8'));
+        res.end(errorData.html);
+    } catch (e) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Error not found');
+    }
 }
 
 function escapeHTML(text) {
@@ -416,6 +429,8 @@ http.createServer((req, res) => {
         puppeteerServerStatus(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL+'/errors') {
         puppeteerErrors(req, res);
+    } else if (req.url.match(new RegExp(`^/puppeteer${config.vttAdminURL}/error/`))) {
+        puppeteerErrorReturnHTML(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL+'/activity') {
         puppeteerServerActivity(req, res);
     } else if (req.url.match(/^\/static\//)) {
