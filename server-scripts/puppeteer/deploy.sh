@@ -2,7 +2,7 @@
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$DIR"
 
-todo=$(rsync -nai --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log ./ vtt:puppeteer/ 2>&1)
+todo=$(rsync -nai --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json ./ vtt:puppeteer/ 2>&1)
 
 if grep -qP 'created directory puppeteer' <<<"$todo"; then
     # for now copy letsencrypt keys manually
@@ -36,7 +36,7 @@ fi
 
 grep -qP 'config|\.js'     <<<"$todo" && ssh vtt kill $(ssh vtt ps axf | grep puppeteer/main.js | awk '{ print $1 }') 
 
-rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log ./ vtt:puppeteer/
+rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json ./ vtt:puppeteer/
 
 grep -q  nginx-server.conf <<<"$todo" && ssh vtt "sudo cp puppeteer/nginx-server.conf /etc/nginx/nginx.conf && sudo systemctl restart nginx"
 grep -qP 'config|\.js'     <<<"$todo" && ssh vtt 'date >> puppeteer/puppeteer.log ; nohup node puppeteer/main.js >> puppeteer/puppeteer.log 2>&1 &'

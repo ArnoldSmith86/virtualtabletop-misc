@@ -3,25 +3,33 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { exec } = require('child_process');
 const config = require('./config.json');
+const persistentData = fs.existsSync(`${__dirname}/persistent-data.json`) ? require(`${__dirname}/persistent-data.json`) : {};
 
 // Add this function near the top of the file, after the imports
-function errorNotify(message) {
-    const originalError = console.error;
-    originalError.apply(console, arguments);
+function errorNotify(...args) {
+    // Use the original error function to log the message
+    originalConsoleError.apply(console, args);
 
-    const formattedMessage = Array.from(arguments).join(' ');
-    const encodedMessage = encodeURIComponent(formattedMessage);
-    const command = `curl -H "Title: VTT Puppeteer Error" -H "Priority: high" -d "${encodedMessage}" ${config.ntfyURL}`;
+    // Format the message
+    const formattedMessage = args.join(' ');
 
+    // Construct the curl command
+    const command = `curl -H "Title: VTT Puppeteer Error" -H "Priority: high" -d "${formattedMessage}" ${config.ntfyURL}`;
+
+    // Execute the command
     exec(command, (error, stdout, stderr) => {
         if (error) {
-            originalError(`Failed to send ntfy notification: ${error}`);
+            // Use the original error function to avoid recursion
+            originalConsoleError(`Failed to send ntfy notification: ${error}`);
         }
     });
 }
 
 // Replace console.error with the new wrapper
-console.error = errorNotify;
+const originalConsoleError = console.error;
+console.error = (...args) => {
+    errorNotify(...args);
+};
 
 if(!fs.existsSync(`${__dirname}/servers`))
     fs.mkdirSync(`${__dirname}/servers`);
@@ -91,7 +99,7 @@ function puppeteerState(req, res) {
 // returns a tree of processes, disk usage, and memory usage of the server
 function puppeteerServerStatus(req, res) {
     exec(`cd "${__dirname}"; df -h .; free -h; ls -ld servers/*/ common/*/*/; tail -n 100 servers/*/*log puppeteer.log; ps axf -o pid,start,args`, (error, stdout, stderr) => {
-        let statusText = '<p><a href="/puppeteer' + config.vttAdminURL + '/errors">View Errors</a> | <a href="https://virtualtabletop.io' + config.vttAdminURL + '">MAIN Server Admin</a></p>';
+        let statusText = '<p><a href="/puppeteer' + config.vttAdminURL + '/errors">View Errors</a> | <a href="https://virtualtabletop.io' + config.vttAdminURL + '">MAIN Server Admin</a> | <a href="/puppeteer' + config.vttAdminURL + '/activity">View Activity</a></p>';
         statusText += '<style>.progress-bar { width: 300px; background-color: #e0e0e0; } .progress-bar-fill { height: 20px; background-color: #4CAF50; }</style>';
         const lines = stdout.split('\n');
         const dfHeaderLine = lines.find(line => line.startsWith('Filesystem'));
@@ -100,7 +108,7 @@ function puppeteerServerStatus(req, res) {
         function parseHumanReadableSize(size) {
             const units = ['B', 'K', 'M', 'G', 'T', 'P'];
             const number = parseFloat(size);
-            const unit = size.replace(number, '').trim();
+            const unit = size.replace(/[^A-Z]/g, '').trim();
             const unitIndex = units.indexOf(unit.charAt(0).toUpperCase());
             return number * Math.pow(1024, unitIndex);
         }
@@ -135,7 +143,7 @@ function puppeteerServerStatus(req, res) {
         statusText += '<pre>';
         statusText += escapeHTML(stdout);
         statusText += '</pre>';
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(statusText);
     });
 }
@@ -356,6 +364,45 @@ function staticFile(req, res) {
     res.end(file);
 }
 
+function puppeteerServerActivity(req, res) {
+    const serverDir = fs.readdirSync(`${__dirname}/servers`);
+    let statusText = '<h1>Server Activity</h1>';
+    statusText += '<table border="1"><tr><th>Server</th><th>Last Modified</th><th>Room Activity</th><th>Last Activity</th></tr>';
+
+    const promises = serverDir.map(async (server) => {
+        if (!server.match(/^PR-\d+$/) && server !== 'MAIN') return;
+
+        const PR = server === 'MAIN' ? 'MAIN' : server.match(/PR-(\d+)/)[1];
+        const logFilePath = `${__dirname}/servers/${server}/server.log`;
+
+        try {
+            const stats = fs.statSync(logFilePath);
+            const modifiedTime = new Date(stats.mtimeMs).toLocaleString();
+
+            let roomActivity = 'N/A';
+            if (server !== 'MAIN') {
+                try {
+                    const roomData = checkServerActivity(PR);
+                    roomActivity = JSON.stringify(roomData, null, 2).replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');
+                } catch (error) {
+                    roomActivity = `Error: ${error.message}`;
+                }
+            }
+
+            return `<tr><td>${server}</td><td>${modifiedTime}</td><td><pre>${roomActivity}</pre></td><td>${lastActivity[PR] ? new Date(lastActivity[PR]).toLocaleString() : 'N/A'}</td></tr>`;
+        } catch (e) {
+            return `<tr><td>${server}</td><td colspan="4">Error: ${e.message}</td></tr>`;
+        }
+    });
+
+    Promise.all(promises).then(rows => {
+        statusText += rows.join('');
+        statusText += '</table>';
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(statusText);
+    });
+}
+
 http.createServer((req, res) => {
     if (req.url === '/puppeteer/webhook' && req.method === 'POST') {
         githubWebhookReceived(req, res);
@@ -369,6 +416,8 @@ http.createServer((req, res) => {
         puppeteerServerStatus(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL+'/errors') {
         puppeteerErrors(req, res);
+    } else if (req.url === '/puppeteer'+config.vttAdminURL+'/activity') {
+        puppeteerServerActivity(req, res);
     } else if (req.url.match(/^\/static\//)) {
         staticFile(req, res);
     } else if (req.url === '/502') {
@@ -385,53 +434,128 @@ http.createServer((req, res) => {
     console.log(`Server listening on port ${config.port}`);
 });
 
-setInterval(() => {
+const previousRoomData = persistentData.previousRoomData || {};
+
+function checkServerActivity(PR) {
+    try {
+        const serverMjsData = fs.readFileSync(`${__dirname}/servers/PR-${PR}/server.mjs`, 'utf8');
+        if(!serverMjsData.match(/adminURL/))
+            return {};
+
+        const configData = fs.readFileSync(`${__dirname}/servers/PR-${PR}/config.json`, 'utf8');
+        const serverConfig = JSON.parse(configData);
+        const port = serverConfig.port;
+
+        const stdout = require('child_process').execSync(`curl -s https://test.virtualtabletop.io/PR-${PR}/${config.vttAdminURL}`, { encoding: 'utf8' });
+        const lines = stdout.split('\n');
+        const roomData = {};
+
+        lines.forEach(line => {
+            const match = line.match(/<p><b><a href='(.+?)'>(.+?)<\/a><\/b>(?:\s*playing\s*(.+?):)?\s*(.+?)\s*\((\d+)\s*deltas transmitted\)<\/p>/);
+            if (match) {
+                const [, href, roomId, game, players, deltas] = match;
+                roomData[roomId] = {
+                    href,
+                    game: game || '',
+                    players: players.split(', '),
+                    deltas: parseInt(deltas)
+                };
+            }
+        });
+
+        return roomData;
+    } catch (error) {
+        console.error(`Error checking server activity for PR-${PR}: ${error}`);
+        return {};
+    }
+}
+
+function hasActiveRoom(currentData, PR) {
+    const previousData = previousRoomData[PR] || {};
+    let hasActivity = false;
+
+    for (const roomId in currentData) {
+        const currentDeltas = currentData[roomId] || {};
+        const previousDeltas = previousData[roomId] || {};
+
+        if ((currentDeltas.deltas !== undefined ? currentDeltas.deltas : 0) > (previousDeltas.deltas !== undefined ? previousDeltas.deltas : -1)) {
+            hasActivity = true;
+            break;
+        }
+    }
+
+    // Update the history
+    previousRoomData[PR] = currentData;
+
+    return hasActivity;
+}
+
+const lastActivity = persistentData.lastActivity || {};
+setInterval(async () => {
     const serverDir = fs.readdirSync(`${__dirname}/servers`);
     const currentTime = Date.now();
     const oneHourAgo = currentTime - (60 * 60 * 1000);
 
-    serverDir.forEach(server => {
-        if (!server.match(/^PR-\d+$/))
-            return;
+    for (const server of serverDir) {
+        if (!server.match(/^PR-\d+$/)) continue;
+
+        const PR = server.match(/PR-(\d+)/)[1];
+        const logFilePath = `${__dirname}/servers/${server}/server.log`;
+
         try {
-            const logFilePath = `${__dirname}/servers/${server}/server.log`;
             const stats = fs.statSync(logFilePath);
             const modifiedTime = stats.mtimeMs;
 
             if (modifiedTime < oneHourAgo) {
-                const PR = server.match(/PR-(\d+)/)[1];
-                call(`"${__dirname}/pr-stop.sh" "${config.templatePath}" "${PR}"`);
+                try {
+                    const roomData = checkServerActivity(PR);
+                    const hasActivity = hasActiveRoom(roomData, PR);
+                    if(hasActivity || !lastActivity[PR])
+                        lastActivity[PR] = Date.now();
+
+                    if (lastActivity[PR] < oneHourAgo && modifiedTime < oneHourAgo)
+                        call(`"${__dirname}/pr-stop.sh" "${config.templatePath}" "${PR}" >> "${__dirname}/servers/PR-${PR}.log" 2>&1`);
+                } catch (error) {
+                    console.log(`Unable to check activity for PR-${PR}, shutting down based on log file age`);
+                    call(`"${__dirname}/pr-stop.sh" "${config.templatePath}" "${PR}" >> "${__dirname}/servers/PR-${PR}.log" 2>&1`);
+                }
             }
         } catch (e) {
-            console.error(`Error checking server log for ${server} (${__dirname}/servers/${server}/server.log): ${e}`);
+            console.error(`Error checking server log for ${server} (${logFilePath}): ${e}`);
         }
-    });
+    }
 
+    let lastCheckedLine = persistentData.lastCheckedLine || 0;
     // Check for client and NodeJS errors in MAIN server
     const mainLogPath = `${__dirname}/servers/MAIN/server.log`;
-    fs.readFile(mainLogPath, 'utf8', (err, data) => {
-        if (err) {
-            console.error(`Error reading MAIN server log: ${err}`);
-            return;
-        }
-
+    try {
+        const data = fs.readFileSync(mainLogPath, 'utf8');
         const lines = data.split('\n');
-        const recentLines = lines.slice(-1000); // Check last 1000 lines
+        const newLines = lines.slice(lastCheckedLine);
 
         let clientErrors = 0;
         let nodeJSErrors = 0;
 
-        recentLines.forEach(line => {
+        newLines.forEach(line => {
             if (line.includes('ERROR: Client error')) {
                 clientErrors++;
             } else if (line.trim().startsWith('Error:')) {
                 nodeJSErrors++;
             }
         });
+        lastCheckedLine = lines.length;
 
         if (clientErrors > 0 || nodeJSErrors > 0) {
             const message = `VTT Errors Detected:\n${clientErrors} client errors\n${nodeJSErrors} NodeJS errors`;
             call(`curl -H "Title: VTT Error Alert" -H "Priority: high" -d "${message}" ${config.ntfyURL}`);
         }
-    });
+    } catch (err) {
+        console.error(`Error reading MAIN server log: ${err}`);
+    }
+
+    // Update the last checked line number in config
+    persistentData.lastCheckedLine = lastCheckedLine;
+    persistentData.lastActivity = lastActivity;
+    persistentData.previousRoomData = previousRoomData;
+    fs.writeFileSync(`${__dirname}/persistent-data.json`, JSON.stringify(persistentData, null, 2));
 }, 5 * 60 * 1000);
