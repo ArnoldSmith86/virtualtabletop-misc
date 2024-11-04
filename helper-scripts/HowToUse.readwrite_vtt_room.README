@@ -1,0 +1,38 @@
+READWRITE VTT ROOM
+==================
+
+
+Just call the script without anything else. By default, it will try to use localhost and `testRoom` as values.
+
+       ./readwrite_vtt_room.sh
+
+If you want to use specific variables, you can either include them in the call or export them.
+For instance, if you want to call your room `test2`, you can either use:
+
+       vtt_room="test2" ./readwrite_vtt_room.sh
+
+or:
+
+      export vtt_room="test2"
+      ./readwrite_vtt_room.sh
+
+
+---
+   
+Variables are:
+
+	* vtt_url = The page with which this is going to connect. (default `localhost:8272`)
+        * vtt_room = The room to connect. (default `testRoom`)
+        * vtt_room_file = In which file the JSON is going to be saved. (default `testRoom.room`)
+        * vtt_interval = How often does it make request to the server, in seconds. (default `15`)
+        * vtt_update_wait = How long does it for the server to update before making a new request, in seconds. (default `1`) 
+
+---
+
+The process just keeps going in a loop. To safely kill it, create a file named `vtt_kill.now` in the same directory.
+It will automatically stop after reading it at the start/end of a loop.
+
+---
+
+*Disclaimer*: Script done for fun. It is provide as is, with no guarantees. Etc, etc, etc.
+Beware the script might overwrite `room_file` at every loop. If working on anything sensitive, work on a copy and not the original file.
