@@ -191,11 +191,46 @@ function puppeteerGitHistory(req, res) {
     });
 }
 
+const stackContextCache = persistentData.stackContextCache || {};
+
 function puppeteerErrors(req, res) {
     const logPath = `${__dirname}/servers/MAIN/server.log`;
     const savePath = `${__dirname}/save/MAIN/errors`;
 
-    fs.readFile(logPath, 'utf8', (err, data) => {
+    async function fetchSourceAndShowContext(url, position, errorId, contextSize = 100) {
+        try {
+            const cacheKey = `${url}:${position}`;
+            if (stackContextCache[errorId]?.[cacheKey]) {
+                return stackContextCache[errorId][cacheKey];
+            }
+
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                }
+            });
+            const code = await response.text();
+            
+            const start = Math.max(0, position - contextSize);
+            const end = Math.min(code.length, position + contextSize);
+            const context = code.substring(start, end);
+            const highlightedContext = context.substring(0, position - start) + 
+                `####REDSTART####${context[position - start]}####REDEND####` + 
+                context.substring(position - start + 1);
+            
+            const result = `                <span style="color:grey">${highlightedContext.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/####REDSTART####/g, '<span style="color:red">').replace(/####REDEND####/g, '</span>')}</span>\n`;
+
+            // Cache the result
+            stackContextCache[errorId] = stackContextCache[errorId] || {};
+            stackContextCache[errorId][cacheKey] = result;
+
+            return result;
+        } catch (error) {
+            return '';
+        }
+    }
+
+    fs.readFile(logPath, 'utf8', async (err, data) => {
         if (err) {
             console.error(`Error reading log file: ${err}`);
             res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -223,7 +258,24 @@ function puppeteerErrors(req, res) {
                         let output = `<b>🖥️ Client Error</b>\n`;
                         output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
                         output += `<b>💬 Message:</b>     ${message}\n`;
-                        output += `<b>❌ Error:</b>       ${error}\n`;
+                        
+                        const stackLines = error.split('\n');
+                        output += `<b>❌ Error:</b>       ${stackLines[0]}\n`; // First line is the error message
+                        
+                        // Process remaining lines (stack trace)
+                        for (const stackLine of stackLines.slice(1)) {
+                            const urlMatch = stackLine.match(/(https:\/\/virtualtabletop\.io\/[^:]+):(\d+):(\d+)/);
+                            if (urlMatch) {
+                                const [fullMatch, fullUrl, line, column] = urlMatch;
+                                const position = parseInt(column);
+                                
+                                output += `                ${stackLine.trim()}\n`;
+                                output += await fetchSourceAndShowContext(fullUrl, position, id);
+                            } else {
+                                output += `                ${stackLine.trim()}\n`;
+                            }
+                        }
+
                         output += `<b>🌐 User Agent:</b>  ${userAgent}\n`;
                         output += `<b>👤 Player Name:</b> ${playerName}\n`;
 
@@ -574,5 +626,6 @@ setInterval(async () => {
     persistentData.lastCheckedLine = lastCheckedLine;
     persistentData.lastActivity = lastActivity;
     persistentData.previousRoomData = previousRoomData;
+    persistentData.stackContextCache = stackContextCache;
     fs.writeFileSync(`${__dirname}/persistent-data.json`, JSON.stringify(persistentData, null, 2));
 }, 5 * 60 * 1000);
