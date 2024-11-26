@@ -197,6 +197,28 @@ function puppeteerErrors(req, res) {
     const logPath = `${__dirname}/servers/MAIN/server.log`;
     const savePath = `${__dirname}/save/MAIN/errors`;
 
+    if (req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const { errorId } = JSON.parse(body);
+                const errorPath = `${savePath}/${errorId}.json`;
+                if (fs.existsSync(errorPath)) {
+                    fs.unlinkSync(errorPath);
+                    delete stackContextCache[errorId];
+                }
+                res.writeHead(200);
+                res.end('OK');
+            } catch (e) {
+                res.writeHead(500);
+                res.end('Error');
+            }
+            return;
+        });
+        return;
+    }
+
     async function fetchSourceAndShowContext(url, position, errorId, contextSize = 100) {
         try {
             const cacheKey = `${url}:${position}`;
@@ -286,7 +308,8 @@ function puppeteerErrors(req, res) {
                         output += `<summary>Detailed JSON (click to expand)</summary>`;
                         output += `<pre>${JSON.stringify(rest, null, 2)}</pre>`;
                         output += `</details>`;
-                        output += `<a href="/puppeteer${config.vttAdminURL}/error/${id}">View HTML</a>\n\n\n`;
+                        output += `<a href="/puppeteer${config.vttAdminURL}/error/${id}">View HTML</a>\n`;
+                        output += `<button onclick="resolveError('${id}')">✓ Resolve</button>\n\n\n`;
 
                         errors.push(output);
                     } catch (readErr) {
@@ -329,7 +352,23 @@ function puppeteerErrors(req, res) {
         // Reverse the order of errors
         errors.reverse();
 
-        let finalOutput = '<pre>' + errors.join('') + '</pre>';
+        let finalOutput = `
+            <script>
+            async function resolveError(id) {
+                if (!confirm('Are you sure you want to resolve this error?')) return;
+                const btn = event.target;
+                btn.disabled = true;
+                const res = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({errorId: id})
+                });
+                if (res.ok) {
+                    btn.innerText = '✓ Done';
+                }
+            }
+            </script>
+            <pre>${errors.join('')}</pre>`;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(finalOutput);
     });
