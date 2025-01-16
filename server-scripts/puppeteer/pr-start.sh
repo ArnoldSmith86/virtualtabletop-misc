@@ -152,7 +152,7 @@ cat <<EOF > config.json
         "forceTracing": false,
         "customTab": null,
 
-        "allowPublicLibraryEdits": true,
+        "allowPublicLibraryEdits": false,
         "adminURL": "$ADMIN_URL",
 
         "directories": {
