@@ -531,7 +531,7 @@ http.createServer((req, res) => {
     } else if (req.url === '/502') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(html());
-    } else if (req.url === '/' && req.headers.host === 'playingcards.letz.dev') {
+    } else if (req.url === '/' && req.headers.host === 'pcioedit.mooo.com') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(fs.readFileSync(`${__dirname}/static/editor.htm`));
     } else {

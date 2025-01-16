@@ -3,7 +3,7 @@
 
 if [ "$1" == SET ]; then
     # UPDATE BACKUPS (at least host key identity)
-    # REMEMBER TO UPDATE playingcards.letz.dev on https://freedns.afraid.org/ (arnoldsmith86)
+    # REMEMBER TO UPDATE pcioedit.mooo.com on https://freedns.afraid.org/ (arnoldsmith86)
 
     ssh vtt 'kill $(<puppeteer/servers/MAIN/server.pid)'
     ssh vtt-prev <<____EOF
