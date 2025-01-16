@@ -193,6 +193,39 @@ function puppeteerGitHistory(req, res) {
 
 const stackContextCache = persistentData.stackContextCache || {};
 
+async function fetchSourceAndShowContext(url, position, errorId, contextSize = 100) {
+    try {
+        const cacheKey = `${url}:${position}`;
+        if (stackContextCache[errorId]?.[cacheKey]) {
+            return stackContextCache[errorId][cacheKey];
+        }
+
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            }
+        });
+        const code = await response.text();
+        
+        const start = Math.max(0, position - contextSize);
+        const end = Math.min(code.length, position + contextSize);
+        const context = code.substring(start, end);
+        const highlightedContext = context.substring(0, position - start) + 
+            `####REDSTART####${context[position - start]}####REDEND####` + 
+            context.substring(position - start + 1);
+        
+        const result = `                <span style="color:grey">${highlightedContext.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/####REDSTART####/g, '<span style="color:red">').replace(/####REDEND####/g, '</span>')}</span>\n`;
+
+        // Cache the result
+        stackContextCache[errorId] = stackContextCache[errorId] || {};
+        stackContextCache[errorId][cacheKey] = result;
+
+        return result;
+    } catch (error) {
+        return '';
+    }
+}
+
 function puppeteerErrors(req, res) {
     const logPath = `${__dirname}/servers/MAIN/server.log`;
     const savePath = `${__dirname}/save/MAIN/errors`;
@@ -217,39 +250,6 @@ function puppeteerErrors(req, res) {
             return;
         });
         return;
-    }
-
-    async function fetchSourceAndShowContext(url, position, errorId, contextSize = 100) {
-        try {
-            const cacheKey = `${url}:${position}`;
-            if (stackContextCache[errorId]?.[cacheKey]) {
-                return stackContextCache[errorId][cacheKey];
-            }
-
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-                }
-            });
-            const code = await response.text();
-            
-            const start = Math.max(0, position - contextSize);
-            const end = Math.min(code.length, position + contextSize);
-            const context = code.substring(start, end);
-            const highlightedContext = context.substring(0, position - start) + 
-                `####REDSTART####${context[position - start]}####REDEND####` + 
-                context.substring(position - start + 1);
-            
-            const result = `                <span style="color:grey">${highlightedContext.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/####REDSTART####/g, '<span style="color:red">').replace(/####REDEND####/g, '</span>')}</span>\n`;
-
-            // Cache the result
-            stackContextCache[errorId] = stackContextCache[errorId] || {};
-            stackContextCache[errorId][cacheKey] = result;
-
-            return result;
-        } catch (error) {
-            return '';
-        }
     }
 
     fs.readFile(logPath, 'utf8', async (err, data) => {
@@ -634,8 +634,9 @@ setInterval(async () => {
     }
 
     let lastCheckedLine = persistentData.lastCheckedLine || 0;
-    // Check for client and NodeJS errors in MAIN server
     const mainLogPath = `${__dirname}/servers/MAIN/server.log`;
+    const savePath = `${__dirname}/save/MAIN/errors`;
+    
     try {
         const data = fs.readFileSync(mainLogPath, 'utf8');
         const lines = data.split('\n');
@@ -644,13 +645,30 @@ setInterval(async () => {
         let clientErrors = 0;
         let nodeJSErrors = 0;
 
-        newLines.forEach(line => {
+        for (const line of newLines) {
             if (line.includes('ERROR: Client error')) {
-                clientErrors++;
+                const match = line.match(/^(\S+) ERROR: Client error (\w+):/);
+                if (match) {
+                    const [, , id] = match;
+                    const errorFilePath = `${savePath}/${id}.json`;
+                    
+                    if (fs.existsSync(errorFilePath)) {
+                        clientErrors++;
+                        const errorData = JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
+                        const { error } = errorData;
+                        
+                        for (const stackLine of error.split('\n').slice(1)) {
+                            const urlMatch = stackLine.match(/(https:\/\/virtualtabletop\.io\/[^:]+):(\d+):(\d+)/);
+                            if (urlMatch) {
+                                await fetchSourceAndShowContext(urlMatch[1], parseInt(urlMatch[3]), id);
+                            }
+                        }
+                    }
+                }
             } else if (line.trim().startsWith('Error:')) {
                 nodeJSErrors++;
             }
-        });
+        }
         lastCheckedLine = lines.length;
 
         if (clientErrors > 0 || nodeJSErrors > 0) {
