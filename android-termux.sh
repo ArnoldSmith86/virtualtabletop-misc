@@ -36,7 +36,7 @@ echo "IF YOU WANT TO USE YOUR WIFI HOTSPOT, ENABLE IT NOW! PRESS ENTER TO CONTIN
 echo
 read a < /dev/tty
 
-ip=$(ip address show dev wlan1 | grep -Po "inet \K[0-9.]+" || ip address show dev wlan0 | grep -Po "inet \K[0-9.]+")
+ip=$(ifconfig | grep "wlan1:" -n1 | grep -Po "inet \K[0-9.]+" || ifconfig | grep "wlan0:" -n1 | grep -Po "inet \K[0-9.]+")
 
 echo "WILL USE IP $ip"
 echo "ACCESS VIA http://$ip:8272"
