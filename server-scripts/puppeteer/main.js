@@ -450,24 +450,29 @@ function call(cmd) {
 }
 
 function staticFile(req, res) {
-    const file = fs.readFileSync(`${__dirname}${req.url}`);
-    if(req.url.match(/\.js$/))
-        res.writeHead(200, { 'Content-Type': 'application/javascript' });
-    else if(req.url.match(/\.css$/))
-        res.writeHead(200, { 'Content-Type': 'text/css' });
-    else if(req.url.match(/\.html?$/))
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-    else if(req.url.match(/\.png$/))
-        res.writeHead(200, { 'Content-Type': 'image/png' });
-    else if(req.url.match(/\.svg$/))
-        res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
-    else if(req.url.match(/\.json$/))
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-    else if(req.url.match(/\.webm$/))
-        res.writeHead(200, { 'Content-Type': 'video/webm' });
-    else
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end(file);
+    try {
+        const file = fs.readFileSync(`${__dirname}${req.url}`);
+        if(req.url.match(/\.js$/))
+            res.writeHead(200, { 'Content-Type': 'application/javascript' });
+        else if(req.url.match(/\.css$/))
+            res.writeHead(200, { 'Content-Type': 'text/css' });
+        else if(req.url.match(/\.html?$/))
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+        else if(req.url.match(/\.png$/))
+            res.writeHead(200, { 'Content-Type': 'image/png' });
+        else if(req.url.match(/\.svg$/))
+            res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+        else if(req.url.match(/\.json$/))
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+        else if(req.url.match(/\.webm$/))
+            res.writeHead(200, { 'Content-Type': 'video/webm' });
+        else
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(file);
+    } catch (e) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('404 Not Found');
+    }
 }
 
 function puppeteerServerActivity(req, res) {
