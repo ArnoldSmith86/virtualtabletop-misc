@@ -275,51 +275,22 @@ function puppeteerErrors(req, res) {
                         continue;
                     try {
                         const errorData = JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
-                        const { message, error, userAgent, playerName, ...rest } = errorData;
-
-                        let output = `<b>🖥️ Client Error</b>\n`;
-                        output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
-                        output += `<b>💬 Message:</b>     ${message}\n`;
-                        
+                        const { message, error } = errorData;
                         const stackLines = error.split('\n');
-                        output += `<b>❌ Error:</b>       ${stackLines[0]}\n`; // First line is the error message
-                        
-                        // Process remaining lines (stack trace)
-                        for (const stackLine of stackLines.slice(1)) {
-                            const urlMatch = stackLine.match(/(https:\/\/virtualtabletop\.io\/[^:]+):(\d+):(\d+)/);
-                            if (urlMatch) {
-                                const [fullMatch, fullUrl, line, column] = urlMatch;
-                                const position = parseInt(column);
-                                
-                                output += `                ${stackLine.trim()}\n`;
-                                output += await fetchSourceAndShowContext(fullUrl, position, id);
-                            } else {
-                                output += `                ${stackLine.trim()}\n`;
-                            }
-                        }
+                        const errorMessage = stackLines[0]; // First line is the error message
 
-                        output += `<b>🌐 User Agent:</b>  ${userAgent}\n`;
-                        output += `<b>👤 Player Name:</b> ${playerName}\n`;
-
-                        delete rest.html;
-                        delete rest.widgetsState;
-
-                        output += `<details>`;
-                        output += `<summary>Detailed JSON (click to expand)</summary>`;
-                        output += `<pre>${JSON.stringify(rest, null, 2)}</pre>`;
-                        output += `</details>`;
-                        output += `<a href="/puppeteer${config.vttAdminURL}/error/${id}">View HTML</a>\n`;
-                        output += `<button onclick="resolveError('${id}')">✓ Resolve</button>\n\n\n`;
-
-                        errors.push(output);
+                        errors.push({
+                            type: 'client',
+                            id,
+                            timestamp,
+                            message,
+                            errorMessage
+                        });
                     } catch (readErr) {
                         console.error(`Error reading error file ${errorFilePath}: ${readErr}`);
                     }
                 }
             } else if (line.trim().startsWith('Error:')) {
-                // NodeJS crash detected
-                let output = `<b>💥 NodeJS Crash</b>\n`;
-
                 // Find the newest timestamp before the error
                 let timestamp = '';
                 for (let k = i - 1; k >= 0; k--) {
@@ -329,28 +300,30 @@ function puppeteerErrors(req, res) {
                     }
                 }
 
-                output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
-                output += `<b>❌ Error:</b>       ${line.trim()}\n`;
-                output += `<b>📚 Stack Trace:</b>\n`;
-                let j = i + 1;
-                while (j < lines.length && lines[j].trim().startsWith('at ')) {
-                    const line = lines[j].trim().replace(/^at /, '');
-                    if (line.includes('file://')) {
-                        output += `                ${line.replace(/(file:\/\/\/.*?MAIN\/)/g, '')}\n`;
-                    } else {
-                        output += `                <span style="opacity: 0.3;">${line}</span>\n`;
-                    }
-                    j++;
-                }
-                output += '\n';
-                i = j - 1; // Skip processed lines
-
-                errors.push(output);
+                errors.push({
+                    type: 'nodejs',
+                    id: `nodejs-${i}`,
+                    timestamp,
+                    message: 'NodeJS Crash',
+                    errorMessage: line.trim()
+                });
             }
         }
 
         // Reverse the order of errors
         errors.reverse();
+
+        let tableRows = errors.map(error => {
+            return `<tr>
+                <td>${error.timestamp}</td>
+                <td>${escapeHTML(error.message)}</td>
+                <td>${escapeHTML(error.errorMessage)}</td>
+                <td>
+                    <a href="/puppeteer${config.vttAdminURL}/error-detail/${error.id}">View Details</a>
+                    <button onclick="resolveError('${error.id}')">✓ Resolve</button>
+                </td>
+            </tr>`;
+        }).join('');
 
         let finalOutput = `
             <script>
@@ -358,7 +331,7 @@ function puppeteerErrors(req, res) {
                 if (!confirm('Are you sure you want to resolve this error?')) return;
                 const btn = event.target;
                 btn.disabled = true;
-                const res = await fetch(window.location.href, {
+                const res = await fetch('/puppeteer${config.vttAdminURL}/errors', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({errorId: id})
@@ -368,9 +341,159 @@ function puppeteerErrors(req, res) {
                 }
             }
             </script>
-            <pre>${errors.join('')}</pre>`;
+            <style>
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                tr:nth-child(even) { background-color: #f9f9f9; }
+                tr:hover { background-color: #f5f5f5; }
+                button { margin-left: 8px; }
+            </style>
+            <h1>Error List</h1>
+            <table>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Message</th>
+                    <th>Error</th>
+                    <th>Actions</th>
+                </tr>
+                ${tableRows}
+            </table>`;
+        
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(finalOutput);
+    });
+}
+
+function puppeteerErrorDetail(req, res) {
+    const errorId = req.url.split('/').pop();
+    const logPath = `${__dirname}/servers/MAIN/server.log`;
+    const savePath = `${__dirname}/save/MAIN/errors`;
+
+    fs.readFile(logPath, 'utf8', async (err, data) => {
+        if (err) {
+            console.error(`Error reading log file: ${err}`);
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Internal Server Error');
+            return;
+        }
+
+        const lines = data.split('\n');
+        let errorDetail = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.includes('ERROR: Client error')) {
+                const match = line.match(/^(\S+) ERROR: Client error (\w+):/);
+                if (match) {
+                    const [, timestamp, id] = match;
+                    if (id === errorId) {
+                        const errorFilePath = `${savePath}/${id}.json`;
+                        if(fs.existsSync(errorFilePath)) {
+                            try {
+                                const errorData = JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
+                                const { message, error, userAgent, playerName, ...rest } = errorData;
+
+                                let output = `<b>🖥️ Client Error</b>\n`;
+                                output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
+                                output += `<b>💬 Message:</b>     ${message}\n`;
+                                
+                                const stackLines = error.split('\n');
+                                output += `<b>❌ Error:</b>       ${stackLines[0]}\n`;
+                                
+                                for (const stackLine of stackLines.slice(1)) {
+                                    const urlMatch = stackLine.match(/(https:\/\/virtualtabletop\.io\/[^:]+):(\d+):(\d+)/);
+                                    if (urlMatch) {
+                                        const [fullMatch, fullUrl, line, column] = urlMatch;
+                                        const position = parseInt(column);
+                                        
+                                        output += `                ${stackLine.trim()}\n`;
+                                        output += await fetchSourceAndShowContext(fullUrl, position, id);
+                                    } else {
+                                        output += `                ${stackLine.trim()}\n`;
+                                    }
+                                }
+
+                                output += `<b>🌐 User Agent:</b>  ${userAgent}\n`;
+                                output += `<b>👤 Player Name:</b> ${playerName}\n`;
+
+                                delete rest.html;
+                                delete rest.widgetsState;
+
+                                output += `<details>`;
+                                output += `<summary>Detailed JSON (click to expand)</summary>`;
+                                output += `<pre>${JSON.stringify(rest, null, 2)}</pre>`;
+                                output += `</details>`;
+                                output += `<a href="/puppeteer${config.vttAdminURL}/error/${id}">View HTML</a>\n`;
+                                output += `<button onclick="resolveError('${id}')">✓ Resolve</button>\n\n\n`;
+
+                                errorDetail = output;
+                                break;
+                            } catch (readErr) {
+                                console.error(`Error reading error file ${errorFilePath}: ${readErr}`);
+                            }
+                        }
+                    }
+                }
+            } else if (line.trim().startsWith('Error:')) {
+                // Check if this is the NodeJS error we're looking for
+                if (errorId === `nodejs-${i}`) {
+                    let output = `<b>💥 NodeJS Crash</b>\n`;
+
+                    let timestamp = '';
+                    for (let k = i - 1; k >= 0; k--) {
+                        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z/.test(lines[k].trim())) {
+                            timestamp = lines[k].trim().split(' ')[0];
+                            break;
+                        }
+                    }
+
+                    output += `<b>🕒 Timestamp:</b>   ${timestamp}\n`;
+                    output += `<b>❌ Error:</b>       ${line.trim()}\n`;
+                    output += `<b>📚 Stack Trace:</b>\n`;
+                    let j = i + 1;
+                    while (j < lines.length && lines[j].trim().startsWith('at ')) {
+                        const line = lines[j].trim().replace(/^at /, '');
+                        if (line.includes('file://')) {
+                            output += `                ${line.replace(/(file:\/\/\/.*?MAIN\/)/g, '')}\n`;
+                        } else {
+                            output += `                <span style="opacity: 0.3;">${line}</span>\n`;
+                        }
+                        j++;
+                    }
+                    output += '\n';
+
+                    errorDetail = output;
+                    break;
+                }
+            }
+        }
+
+        if (errorDetail) {
+            let finalOutput = `
+                <script>
+                async function resolveError(id) {
+                    if (!confirm('Are you sure you want to resolve this error?')) return;
+                    const btn = event.target;
+                    btn.disabled = true;
+                    const res = await fetch('/puppeteer${config.vttAdminURL}/errors', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({errorId: id})
+                    });
+                    if (res.ok) {
+                        btn.innerText = '✓ Done';
+                    }
+                }
+                </script>
+                <p><a href="/puppeteer${config.vttAdminURL}/errors">← Back to Error List</a></p>
+                <pre>${errorDetail}</pre>`;
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(finalOutput);
+        } else {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Error not found');
+        }
     });
 }
 
@@ -527,6 +650,8 @@ http.createServer((req, res) => {
         puppeteerServerStatus(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL+'/errors') {
         puppeteerErrors(req, res);
+    } else if (req.url.match(new RegExp(`^/puppeteer${config.vttAdminURL}/error-detail/`))) {
+        puppeteerErrorDetail(req, res);
     } else if (req.url.match(new RegExp(`^/puppeteer${config.vttAdminURL}/error/`))) {
         puppeteerErrorReturnHTML(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL+'/activity') {
