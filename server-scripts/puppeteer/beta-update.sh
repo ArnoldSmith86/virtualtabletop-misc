@@ -59,7 +59,6 @@ ____EOF
     # the branch is force-pushed by the AI agent, so hard-reset instead of pull
     git checkout -B "$BRANCH"
     git reset --hard "origin/$BRANCH"
-    git submodule update --init
 
     echo '{"state": "2/3 updating dependencies"}' > state.json
     npm install --omit=dev
