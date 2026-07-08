@@ -34,7 +34,8 @@ ________EOF
 ____EOF
 fi
 
-rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json ./ vtt:puppeteer/
+rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json --exclude static/ ./ vtt:puppeteer/
+rsync -ai --progress static/ vtt:puppeteer/static/
 
 grep -q  nginx-server.conf <<<"$todo" && ssh vtt "sudo cp puppeteer/nginx-server.conf /etc/nginx/nginx.conf && sudo systemctl restart nginx"
 grep -qP 'config|\.js|\.service' <<<"$todo" && ssh vtt 'sudo cp puppeteer/puppeteer.service /etc/systemd/system/puppeteer.service && sudo systemctl daemon-reload && sudo systemctl enable puppeteer && sudo systemctl restart puppeteer'
