@@ -34,9 +34,7 @@ ________EOF
 ____EOF
 fi
 
-grep -qP 'config|\.js'     <<<"$todo" && ssh vtt kill $(ssh vtt ps axf | grep puppeteer/main.js | awk '{ print $1 }') 
-
 rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json ./ vtt:puppeteer/
 
 grep -q  nginx-server.conf <<<"$todo" && ssh vtt "sudo cp puppeteer/nginx-server.conf /etc/nginx/nginx.conf && sudo systemctl restart nginx"
-grep -qP 'config|\.js'     <<<"$todo" && ssh vtt 'date >> puppeteer/puppeteer.log ; nohup node puppeteer/main.js >> puppeteer/puppeteer.log 2>&1 &'
+grep -qP 'config|\.js|\.service' <<<"$todo" && ssh vtt 'sudo cp puppeteer/puppeteer.service /etc/systemd/system/puppeteer.service && sudo systemctl daemon-reload && sudo systemctl enable puppeteer && sudo systemctl restart puppeteer'

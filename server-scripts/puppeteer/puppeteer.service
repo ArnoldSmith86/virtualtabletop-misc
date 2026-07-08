@@ -1,0 +1,19 @@
+[Unit]
+Description=VTT puppeteer server manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/root/puppeteer
+ExecStartPre=/bin/sh -c 'date >> /root/puppeteer/puppeteer.log'
+ExecStart=/usr/bin/node /root/puppeteer/main.js
+StandardOutput=append:/root/puppeteer/puppeteer.log
+StandardError=append:/root/puppeteer/puppeteer.log
+Restart=always
+RestartSec=5
+# main.js spawns the MAIN/PR game servers; only kill main.js itself on
+# stop/restart so deploys don't take down running game servers
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
