@@ -674,6 +674,122 @@ function githubWebhookReceived(req, res) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Error reporting to the AI agent (agent.virtualtabletop.io/errors).
+//
+// PRIVACY: reports are built from a strict WHITELIST of fields — the error's
+// first line, its stack frames, a coarse browser family, timestamp, server and
+// error id. The client error files also contain room names, player names, room
+// state and HTML snapshots; none of that must EVER leave this server, so those
+// fields are never read into a report. Do not add fields without considering
+// that reports can end up in public GitHub comments.
+
+function browserFamily(userAgent) {
+    if (!userAgent) return 'unknown';
+    const m = String(userAgent).match(/(Edg|Edge|OPR|Firefox|Chrome|Safari)\/([0-9]+)/);
+    if (!m) return 'other';
+    const names = { Edg: 'Edge', OPR: 'Opera' };
+    return `${names[m[1]] || m[1]} ${m[2]}`;
+}
+
+// Scans one server's log for new client errors / NodeJS crashes and returns
+// sanitized reports. Line progress is tracked per server in persistentData.
+function collectServerErrors(server, logPath, savePath) {
+    const reports = [];
+    let data;
+    try {
+        data = fs.readFileSync(logPath, 'utf8');
+    } catch (e) {
+        return reports;
+    }
+    const lines = data.split('\n');
+    persistentData.errorReportLines = persistentData.errorReportLines || {};
+    const start = persistentData.errorReportLines[server] || 0;
+    if (start > lines.length) // log was rotated/replaced
+        persistentData.errorReportLines[server] = 0;
+
+    for (let i = persistentData.errorReportLines[server] || 0; i < lines.length; i++) {
+        const line = lines[i];
+        const clientMatch = line.match(/^(\S+) ERROR: Client error (\w+):/);
+        if (clientMatch) {
+            const [, timestamp, id] = clientMatch;
+            try {
+                const errorData = JSON.parse(fs.readFileSync(`${savePath}/${id}.json`, 'utf8'));
+                const stackLines = String(errorData.error || '').split('\n');
+                reports.push({
+                    server,
+                    type: 'client',
+                    errorId: id,
+                    timestamp,
+                    error: stackLines[0].trim(),
+                    stack: stackLines.slice(1, 16).map(l => l.trim()).join('\n'),
+                    browser: browserFamily(errorData.userAgent)
+                });
+            } catch (e) { /* error file gone or unreadable — skip */ }
+        } else if (line.trim().startsWith('Error:')) {
+            let timestamp = '';
+            for (let k = i - 1; k >= 0; k--) {
+                if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z/.test(lines[k].trim())) {
+                    timestamp = lines[k].trim().split(' ')[0];
+                    break;
+                }
+            }
+            let stack = [];
+            for (let j = i + 1; j < lines.length && lines[j].trim().startsWith('at ') && stack.length < 15; j++)
+                stack.push(lines[j].trim());
+            reports.push({
+                server,
+                type: 'server',
+                errorId: `nodejs-${server}-${i}`,
+                timestamp,
+                error: line.trim(),
+                stack: stack.join('\n')
+            });
+        }
+    }
+    persistentData.errorReportLines[server] = lines.length;
+    return reports;
+}
+
+// Collects new errors from MAIN, all BETA-* and all PR-* servers and POSTs them
+// to the AI agent, HMAC-signed with the shared secret. Failures just retry on
+// the next interval (line progress is only persisted by the main loop's write).
+async function reportErrorsToAgent() {
+    if (!config.betaUpdateSecret) return;
+
+    // First run ever: baseline all logs at their current length instead of
+    // flooding the agent with the whole error backlog.
+    const baseline = !persistentData.errorReportLines;
+
+    const reports = [];
+    for (const server of fs.readdirSync(`${__dirname}/servers`)) {
+        let savePath = null;
+        if (server === 'MAIN') savePath = `${__dirname}/save/MAIN/errors`;
+        else if (server.match(/^BETA-[A-Za-z0-9_-]+$/)) savePath = `${__dirname}/save/${server}/errors`;
+        else if (server.match(/^PR-\d+$/)) savePath = `${__dirname}/servers/${server}/save/errors`;
+        else continue;
+        reports.push(...collectServerErrors(server, `${__dirname}/servers/${server}/server.log`, savePath));
+    }
+    if (baseline) {
+        console.log(new Date().toISOString(), 'ERROR-REPORT', `baselined error logs (skipping ${reports.length} historical report(s))`);
+        return;
+    }
+    if (!reports.length) return;
+
+    const body = JSON.stringify({ reports });
+    const signature = 'sha256=' + crypto.createHmac('sha256', config.betaUpdateSecret).update(body).digest('hex');
+    try {
+        const res = await fetch('https://agent.virtualtabletop.io/errors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-beta-signature': signature },
+            body
+        });
+        console.log(new Date().toISOString(), 'ERROR-REPORT', `sent ${reports.length} report(s), agent answered ${res.status}`);
+    } catch (e) {
+        console.log(new Date().toISOString(), 'ERROR-REPORT', `failed to reach agent: ${e.message}`);
+    }
+}
+
 function call(cmd) {
     console.log(new Date().toISOString(), 'CALLING', cmd);
     exec(cmd, (error) => {
@@ -1063,6 +1179,13 @@ setInterval(async () => {
         }
     } catch (err) {
         console.error(`Error reading MAIN server log: ${err}`);
+    }
+
+    // Route new errors (MAIN + beta + PR servers) to the AI agent.
+    try {
+        await reportErrorsToAgent();
+    } catch (e) {
+        console.log(new Date().toISOString(), 'ERROR-REPORT', `unexpected failure: ${e.message}`);
     }
 
     // Update the last checked line number in config
