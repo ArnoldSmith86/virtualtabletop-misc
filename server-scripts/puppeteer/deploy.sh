@@ -34,8 +34,14 @@ ________EOF
 ____EOF
 fi
 
-rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json --exclude static/ ./ vtt:puppeteer/
+# nginx-private.conf is SERVER-authoritative (the AI agent adds vhosts to it on the
+# server); exclude it so a deploy can neither overwrite nor delete it. Pull it down
+# instead so the local copy stays a current reference.
+rsync -ai --delete --progress --exclude servers --exclude common --exclude save --exclude backups --exclude puppeteer.log --exclude persistent-data.json --exclude 'nginx-private*.conf' --exclude static/ ./ vtt:puppeteer/
 rsync -ai --progress static/ vtt:puppeteer/static/
+rsync -ai vtt:puppeteer/nginx-private.conf ./nginx-private.conf
 
-grep -qP 'nginx-(server|private).*\.conf' <<<"$todo" && ssh vtt "sudo cp puppeteer/nginx-server.conf /etc/nginx/nginx.conf && sudo systemctl restart nginx"
+# snapshot the live nginx config before overwriting it, so nothing added out-of-band
+# (like the agent.virtualtabletop.io block lost 2026-07-08) is ever irrecoverable
+grep -qP 'nginx-(server|private).*\.conf' <<<"$todo" && ssh vtt "mkdir -p puppeteer/backups && sudo cp /etc/nginx/nginx.conf puppeteer/backups/nginx.conf.\$(date +%Y%m%d-%H%M%S) && sudo cp puppeteer/nginx-server.conf /etc/nginx/nginx.conf && sudo nginx -t && sudo systemctl restart nginx"
 grep -qP 'config|\.js|\.service' <<<"$todo" && ssh vtt 'sudo cp puppeteer/puppeteer.service /etc/systemd/system/puppeteer.service && sudo systemctl daemon-reload && sudo systemctl enable puppeteer && sudo systemctl restart puppeteer'
