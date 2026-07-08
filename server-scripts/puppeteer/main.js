@@ -528,10 +528,9 @@ function betaVerifySignature(sig, payload) {
     return checksum.length === digest.length && crypto.timingSafeEqual(digest, checksum);
 }
 
-// Reads a signed beta API request and hands the parsed body plus the matching
-// config.betaServers entry to the callback. Responds with the error itself when
-// the signature is bad or the server name is unknown.
-function betaRequest(req, res, callback) {
+// Reads a signed AI-agent API request, verifies the HMAC and hands the parsed
+// body to the callback. Responds with the error itself on a bad signature.
+function signedRequest(req, res, callback) {
     let body = '';
     req.on('data', chunk => {
         body += chunk;
@@ -539,23 +538,60 @@ function betaRequest(req, res, callback) {
     req.on('end', () => {
         try {
             if (!betaVerifySignature(req.headers['x-beta-signature'], body)) {
-                console.log(new Date().toISOString(), 'ERROR', 'Beta API request was not signed correctly');
+                console.log(new Date().toISOString(), 'ERROR', 'Agent API request was not signed correctly');
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'bad signature' }));
                 return;
             }
-            const payload = JSON.parse(body);
-            const beta = (config.betaServers || {})[payload.server];
-            if (!beta) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: `unknown beta server "${payload.server}"` }));
-                return;
-            }
-            callback(payload, beta);
+            callback(JSON.parse(body));
         } catch (e) {
             console.log(new Date().toISOString(), 'EXCEPTION', e);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: e.message }));
+        }
+    });
+}
+
+// Like signedRequest, but also resolves the config.betaServers entry named in
+// the body (404 when the server name is unknown).
+function betaRequest(req, res, callback) {
+    signedRequest(req, res, (payload) => {
+        const beta = (config.betaServers || {})[payload.server];
+        if (!beta) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `unknown beta server "${payload.server}"` }));
+            return;
+        }
+        callback(payload, beta);
+    });
+}
+
+// POST /puppeteer/control — the AI agent's access to the controller actions
+// (same operations as the human /puppeteer/CONTROLLER page):
+//   {"action": "status"}                            → auto-update flag + MAIN state
+//   {"action": "toggleAutoUpdate", "enabled": bool} → auto-update MAIN on push to main
+//   {"action": "manualUpdate"}                      → update + restart MAIN now
+function puppeteerAgentControl(req, res) {
+    signedRequest(req, res, (payload) => {
+        if (payload.action === 'toggleAutoUpdate') {
+            config.autoUpdateMain = !!payload.enabled;
+            saveConfig();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, autoUpdateMain: config.autoUpdateMain }));
+        } else if (payload.action === 'manualUpdate') {
+            call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, started: true }));
+        } else if (payload.action === 'status') {
+            let main = null;
+            try {
+                main = JSON.parse(fs.readFileSync(`${__dirname}/servers/MAIN/state.json`, 'utf8'));
+            } catch (e) { /* no state file yet */ }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, autoUpdateMain: config.autoUpdateMain !== false, main }));
+        } else {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Invalid action' }));
         }
     });
 }
@@ -857,6 +893,8 @@ http.createServer((req, res) => {
         puppeteerBetaUpdate(req, res);
     } else if (req.url === '/puppeteer/beta-state' && req.method === 'POST') {
         puppeteerBetaState(req, res);
+    } else if (req.url === '/puppeteer/control' && req.method === 'POST') {
+        puppeteerAgentControl(req, res);
     } else if (req.url === '/puppeteer/history' && req.method === 'GET') {
         puppeteerGitHistory(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL) {
