@@ -14,8 +14,8 @@
             "port": 10001,
             "url": "https://beta.virtualtabletop.io",
             "urlPrefix": "",
-            "return": false,
-            "description": "This server contains open pull requests labelled \"beta\", merged and updated automatically by the AI agent. See its About overlay for the included PRs."
+            "return": true,
+            "description": "Try upcoming features before they are officially released. Your game is copied over to the beta server and you can continue playing there \u2014 and when you're done, you can send the game state back to this server. Things might occasionally be a bit rough around the edges; if something doesn't work, please report it on Discord or GitHub."
         }
     }
 }
