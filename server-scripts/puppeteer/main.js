@@ -519,6 +519,73 @@ function escapeHTML(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Verifies the HMAC-SHA256 signature the AI agent puts on beta API requests.
+function betaVerifySignature(sig, payload) {
+    if (!config.betaUpdateSecret || !sig || !sig.startsWith('sha256=')) return false;
+    const hmac = crypto.createHmac('sha256', config.betaUpdateSecret);
+    const digest = Buffer.from('sha256=' + hmac.update(payload).digest('hex'), 'utf8');
+    const checksum = Buffer.from(sig, 'utf8');
+    return checksum.length === digest.length && crypto.timingSafeEqual(digest, checksum);
+}
+
+// Reads a signed beta API request and hands the parsed body plus the matching
+// config.betaServers entry to the callback. Responds with the error itself when
+// the signature is bad or the server name is unknown.
+function betaRequest(req, res, callback) {
+    let body = '';
+    req.on('data', chunk => {
+        body += chunk;
+    });
+    req.on('end', () => {
+        try {
+            if (!betaVerifySignature(req.headers['x-beta-signature'], body)) {
+                console.log(new Date().toISOString(), 'ERROR', 'Beta API request was not signed correctly');
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'bad signature' }));
+                return;
+            }
+            const payload = JSON.parse(body);
+            const beta = (config.betaServers || {})[payload.server];
+            if (!beta) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `unknown beta server "${payload.server}"` }));
+                return;
+            }
+            callback(payload, beta);
+        } catch (e) {
+            console.log(new Date().toISOString(), 'EXCEPTION', e);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+    });
+}
+
+// POST /puppeteer/beta-update {"server": "Beta"} — pulls the beta branch and
+// (re)starts that beta server. The update runs in the background; poll
+// /puppeteer/beta-state to see it finish.
+function puppeteerBetaUpdate(req, res) {
+    betaRequest(req, res, (payload, beta) => {
+        call(`"${__dirname}/beta-update.sh" "${payload.server}" "${beta.branch}" "${beta.port}" "${beta.url}" "${beta.urlPrefix || ''}" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/BETA-${payload.server}.log" 2>&1`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ started: true }));
+    });
+}
+
+// POST /puppeteer/beta-state {"server": "Beta"} — returns the server's state.json.
+function puppeteerBetaState(req, res) {
+    betaRequest(req, res, (payload) => {
+        fs.readFile(`${__dirname}/servers/BETA-${payload.server}/state.json`, 'utf8', (err, data) => {
+            if (err) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ state: 'unknown - no state file yet' }));
+            } else {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(data.trim());
+            }
+        });
+    });
+}
+
 function githubVerifyPostData(sig, payload) {
     const hmac = crypto.createHmac('sha1', config.githubWebhookSecret);
     const digest = Buffer.from('sha1=' + hmac.update(payload).digest('hex'), 'utf8');
@@ -786,6 +853,10 @@ http.createServer((req, res) => {
         puppeteerStart(req, res);
     } else if (req.url === '/puppeteer/state' && req.method === 'POST') {
         puppeteerState(req, res);
+    } else if (req.url === '/puppeteer/beta-update' && req.method === 'POST') {
+        puppeteerBetaUpdate(req, res);
+    } else if (req.url === '/puppeteer/beta-state' && req.method === 'POST') {
+        puppeteerBetaState(req, res);
     } else if (req.url === '/puppeteer/history' && req.method === 'GET') {
         puppeteerGitHistory(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL) {

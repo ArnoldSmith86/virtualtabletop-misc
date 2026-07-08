@@ -1,8 +1,17 @@
 #!/bin/bash
+# Updates (or creates) a beta server from a git branch and (re)starts it.
+# Triggered by the AI agent through POST /puppeteer/beta-update in main.js.
+#
+# beta-update.sh <name> <branch> <port> <externalURL> <urlPrefix> <adminURL> <ntfyURL>
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-SERVER=$DIR/servers/MAIN
-ADMIN_URL=$1
-NTFY_URL=$2
+NAME=$1
+BRANCH=$2
+PORT=$3
+EXTERNAL_URL=$4
+URL_PREFIX=$5
+ADMIN_URL=$6
+NTFY_URL=$7
+SERVER=$DIR/servers/BETA-$NAME
 
 if ! [ -d "$SERVER/.git" ]; then
     mkdir -p "$(dirname "$SERVER")"
@@ -10,24 +19,13 @@ if ! [ -d "$SERVER/.git" ]; then
 fi
 
 pgrep -F "$SERVER/script.pid" 2>/dev/null && exit 1
-grep ERROR "$SERVER/state.json" 2>/dev/null && exit 1
-[ -d "$SERVER" ] && echo $$ > "$SERVER/script.pid"
+echo $$ > "$SERVER/script.pid"
 
-mkdir -p "$DIR/save/MAIN" "$DIR/common/assets"
-
-# build the betaServers block for the client from the beta servers this
-# puppeteer manages (see betaServers in config.json / beta-update.sh)
-BETA_SERVERS=$(node -e '
-    const c = require(process.argv[1]);
-    const out = {};
-    for (const [name, beta] of Object.entries(c.betaServers || {}))
-        out[name] = { url: beta.url, return: !!beta.return, description: beta.description || "" };
-    console.log(JSON.stringify(out));
-' "$DIR/config.json" 2>/dev/null || echo '{}')
+mkdir -p "$DIR/save/BETA-$NAME" "$DIR/common/assets"
 
 pushd "$SERVER"
     echo '{"state": "0/3 stopping server"}' > state.json
-    if pgrep -F server.pid; then
+    if pgrep -F server.pid 2>/dev/null; then
         pkill -F server.pid
         while pgrep -F server.pid; do
             sleep 1
@@ -37,49 +35,39 @@ pushd "$SERVER"
 
     cat <<____EOF > config.json
         {
-            "port": 8272,
-            "externalURL": "https://virtualtabletop.io",
-            "urlPrefix": "",
+            "serverName": "$NAME | VTT",
+            "port": $PORT,
+            "externalURL": "$EXTERNAL_URL",
+            "urlPrefix": "$URL_PREFIX",
             "minifyJavascript": true,
             "adminURL": "$ADMIN_URL",
 
             "directories": {
                 "library": "library",
-                "save": "$DIR/save/MAIN",
+                "save": "$DIR/save/BETA-$NAME",
                 "assets": "$DIR/common/assets"
             },
 
-            "betaServers": ${BETA_SERVERS:-{}},
+            "betaServers": {},
             "legacyServers": {}
         }
 ____EOF
 
     echo '{"state": "1/3 updating git"}' > state.json
     git checkout .
-    git checkout main
-    git pull
-
+    git fetch origin "$BRANCH"
+    # the branch is force-pushed by the AI agent, so hard-reset instead of pull
+    git checkout -B "$BRANCH"
+    git reset --hard "origin/$BRANCH"
+    git submodule update --init
 
     echo '{"state": "2/3 updating dependencies"}' > state.json
     npm install --omit=dev
 
-    if [ -f "$DIR/donate_insert.htm" ]; then
-        awk 'NR==FNR{a[i++]=$0}
-            NR>FNR{
-                if($0~"<h2>Copyright Attribution</h2>"){
-                    for(j=0;j<i;j++){
-                        print a[j]
-                    }
-                }
-                print $0
-            }
-        ' "$DIR/donate_insert.htm" client/room.html > /tmp/room.html && mv /tmp/room.html client/room.html
-    fi
-
     echo '{"state": "3/3 starting"}' > state.json
-    echo "SERVER STARTING - $(date) - $(git rev-parse --short HEAD)" >> server.log
+    echo "BETA SERVER STARTING - $(date) - $(git rev-parse --short HEAD)" >> server.log
     curl -G "$NTFY_URL/trigger" \
-         --data-urlencode "title=VTT Restart" \
+         --data-urlencode "title=VTT Beta Restart ($NAME)" \
          --data-urlencode "message=$(git rev-parse --short HEAD) $(git log -1 --pretty=%B) --- $(df -h . | awk 'NR==2{print $4}')" &
     nohup node server.mjs >> server.log 2>&1 &
     echo $! > server.pid
@@ -91,6 +79,10 @@ ____EOF
     awk '/SERVER STARTING/{invalid=1} /Listening on/{invalid=0} END{exit invalid}' server.log || sleep 10
     sleep 2
 
-    echo '{"state": "running"}' > state.json
+    if awk '/SERVER STARTING/{invalid=1} /Listening on/{invalid=0} END{exit invalid}' server.log; then
+        echo "{\"state\": \"running\", \"revision\": \"$(git rev-parse --short HEAD)\"}" > state.json
+    else
+        echo "{\"state\": \"ERROR: server did not start - see server.log\", \"revision\": \"$(git rev-parse --short HEAD)\"}" > state.json
+    fi
     rm script.pid
 popd

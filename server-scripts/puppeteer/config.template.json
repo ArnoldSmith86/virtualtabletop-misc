@@ -6,5 +6,16 @@
     "vttControllerURL": "/CONTROLLER",
     "autoUpdateMain": true,
     "port": 3000,
-    "ntfyURL": ""
+    "ntfyURL": "",
+    "betaUpdateSecret": "",
+    "betaServers": {
+        "Beta": {
+            "branch": "beta",
+            "port": 10001,
+            "url": "https://beta.virtualtabletop.io",
+            "urlPrefix": "",
+            "return": false,
+            "description": "This server contains open pull requests labelled \"beta\", merged and updated automatically by the AI agent. See its About overlay for the included PRs."
+        }
+    }
 }
