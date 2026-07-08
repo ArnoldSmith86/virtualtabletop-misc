@@ -1,5 +1,6 @@
 common
 config.json
 donate_insert.htm
+nginx-private.conf
 persistent-data.json
 servers
