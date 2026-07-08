@@ -24,6 +24,7 @@ BETA_SERVERS=$(node -e '
         out[name] = { url: beta.url, return: !!beta.return, description: beta.description || "" };
     console.log(JSON.stringify(out));
 ' "$DIR/config.json" 2>/dev/null || echo '{}')
+[ -z "$BETA_SERVERS" ] && BETA_SERVERS='{}'
 
 pushd "$SERVER"
     echo '{"state": "0/3 stopping server"}' > state.json
@@ -49,7 +50,7 @@ pushd "$SERVER"
                 "assets": "$DIR/common/assets"
             },
 
-            "betaServers": ${BETA_SERVERS:-{}},
+            "betaServers": $BETA_SERVERS,
             "legacyServers": {}
         }
 ____EOF
