@@ -3,6 +3,8 @@
     "githubToken": "",
     "githubWebhookSecret": "",
     "vttAdminURL": "/ADMIN",
+    "vttControllerURL": "/CONTROLLER",
+    "autoUpdateMain": true,
     "port": 3000,
     "ntfyURL": ""
 }

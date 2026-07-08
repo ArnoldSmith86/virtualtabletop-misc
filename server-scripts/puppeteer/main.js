@@ -2,8 +2,12 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const { exec } = require('child_process');
-const config = require('./config.json');
+let config = require('./config.json');
 const persistentData = fs.existsSync(`${__dirname}/persistent-data.json`) ? require(`${__dirname}/persistent-data.json`) : {};
+
+function saveConfig() {
+    fs.writeFileSync(`${__dirname}/config.json`, JSON.stringify(config, null, 4));
+}
 
 // Add this function near the top of the file, after the imports
 function errorNotify(...args) {
@@ -50,7 +54,9 @@ function puppeteerStart(req, res) {
             const PR = urlMatch[1];
             call(`"${__dirname}/pr-start.sh" "${config.templatePath}" "${PR}" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/PR-${PR}.log" 2>&1`);
         } else if(url.match(/https:\/\/virtualtabletop\.io\//)) {
-            call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+            if (config.autoUpdateMain !== false) {
+                call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+            }
         }
         res.end();
     });
@@ -99,7 +105,7 @@ function puppeteerState(req, res) {
 // returns a tree of processes, disk usage, and memory usage of the server
 function puppeteerServerStatus(req, res) {
     exec(`cd "${__dirname}"; df -h .; free -h; ls -ld servers/*/ common/*/*/; tail -n 100 servers/*/*log puppeteer.log; ps axf -o pid,start,args`, (error, stdout, stderr) => {
-        let statusText = '<p><a href="/puppeteer' + config.vttAdminURL + '/errors">View Errors</a> | <a href="https://virtualtabletop.io' + config.vttAdminURL + '">MAIN Server Admin</a> | <a href="/puppeteer' + config.vttAdminURL + '/activity">View Activity</a></p>';
+        let statusText = '<p><a href="/puppeteer' + config.vttAdminURL + '/errors">View Errors</a> | <a href="https://virtualtabletop.io' + config.vttAdminURL + '">MAIN Server Admin</a> | <a href="/puppeteer' + config.vttAdminURL + '/activity">View Activity</a> | <a href="/puppeteer' + config.vttControllerURL + '">Controller</a></p>';
         statusText += '<style>.progress-bar { width: 300px; background-color: #e0e0e0; } .progress-bar-fill { height: 20px; background-color: #4CAF50; }</style>';
         const lines = stdout.split('\n');
         const dfHeaderLine = lines.find(line => line.startsWith('Filesystem'));
@@ -535,7 +541,9 @@ function githubWebhookReceived(req, res) {
                 console.log(new Date().toISOString(), 'GITHUB', req.headers['x-github-event'], payload.action);
 
                 if (req.headers['x-github-event'] === 'push' && payload.ref === 'refs/heads/main') {
-                    call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+                    if (config.autoUpdateMain !== false) {
+                        call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+                    }
                 }
 
                 if (req.headers['x-github-event'] === 'pull_request' && payload.action.match(/opened/)) {
@@ -598,6 +606,140 @@ function staticFile(req, res) {
     }
 }
 
+function puppeteerController(req, res) {
+    if (req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body);
+                if (data.action === 'toggleAutoUpdate') {
+                    config.autoUpdateMain = data.enabled;
+                    saveConfig();
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, autoUpdateMain: config.autoUpdateMain }));
+                } else if (data.action === 'manualUpdate') {
+                    call(`"${__dirname}/main-update.sh" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/MAIN.log" 2>&1`);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, message: 'Update started' }));
+                } else {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: false, error: 'Invalid action' }));
+                }
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: e.message }));
+            }
+            return;
+        });
+        return;
+    }
+
+    const autoUpdateChecked = config.autoUpdateMain !== false ? 'checked' : '';
+    let controllerHTML = `
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .container { max-width: 800px; margin: 0 auto; }
+            h1 { color: #333; }
+            .control-group { margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; }
+            label { display: flex; align-items: center; cursor: pointer; }
+            input[type="checkbox"] { margin-right: 10px; width: 20px; height: 20px; cursor: pointer; }
+            button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px; }
+            button:hover { background: #45a049; }
+            button:disabled { background: #cccccc; cursor: not-allowed; }
+            .status { margin-top: 10px; padding: 10px; border-radius: 4px; }
+            .status.success { background: #d4edda; color: #155724; }
+            .status.error { background: #f8d7da; color: #721c24; }
+            .link { margin: 10px 0; }
+        </style>
+        <div class="container">
+            <h1>VTT Server Controller</h1>
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="autoUpdateCheckbox" ${autoUpdateChecked} onchange="toggleAutoUpdate()">
+                    <span>Auto-update server MAIN on push to main branch</span>
+                </label>
+                <div id="autoUpdateStatus" class="status" style="display: none;"></div>
+            </div>
+            <div class="control-group">
+                <button onclick="manualUpdate()" id="manualUpdateBtn">Manual Update</button>
+                <div id="manualUpdateStatus" class="status" style="display: none;"></div>
+            </div>
+        </div>
+        <script>
+            async function toggleAutoUpdate() {
+                const checkbox = document.getElementById('autoUpdateCheckbox');
+                const statusDiv = document.getElementById('autoUpdateStatus');
+                checkbox.disabled = true;
+                
+                try {
+                    const res = await fetch('/puppeteer${config.vttControllerURL}', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'toggleAutoUpdate', enabled: checkbox.checked })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.success) {
+                        statusDiv.className = 'status success';
+                        statusDiv.textContent = 'Auto-update setting saved: ' + (data.autoUpdateMain ? 'Enabled' : 'Disabled');
+                        statusDiv.style.display = 'block';
+                        setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
+                    } else {
+                        statusDiv.className = 'status error';
+                        statusDiv.textContent = 'Error: ' + (data.error || 'Failed to save setting');
+                        statusDiv.style.display = 'block';
+                        checkbox.checked = !checkbox.checked;
+                    }
+                } catch (e) {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = 'Error: ' + e.message;
+                    statusDiv.style.display = 'block';
+                    checkbox.checked = !checkbox.checked;
+                } finally {
+                    checkbox.disabled = false;
+                }
+            }
+            
+            async function manualUpdate() {
+                const btn = document.getElementById('manualUpdateBtn');
+                const statusDiv = document.getElementById('manualUpdateStatus');
+                btn.disabled = true;
+                btn.textContent = 'Updating...';
+                
+                try {
+                    const res = await fetch('/puppeteer${config.vttControllerURL}', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'manualUpdate' })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.success) {
+                        statusDiv.className = 'status success';
+                        statusDiv.textContent = 'Update started successfully';
+                        statusDiv.style.display = 'block';
+                    } else {
+                        statusDiv.className = 'status error';
+                        statusDiv.textContent = 'Error: ' + (data.error || 'Failed to start update');
+                        statusDiv.style.display = 'block';
+                    }
+                } catch (e) {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = 'Error: ' + e.message;
+                    statusDiv.style.display = 'block';
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Manual Update';
+                }
+            }
+        </script>
+    `;
+    
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(controllerHTML);
+}
+
 function puppeteerServerActivity(req, res) {
     const serverDir = fs.readdirSync(`${__dirname}/servers`);
     let statusText = '<h1>Server Activity</h1>';
@@ -656,6 +798,8 @@ http.createServer((req, res) => {
         puppeteerErrorReturnHTML(req, res);
     } else if (req.url === '/puppeteer'+config.vttAdminURL+'/activity') {
         puppeteerServerActivity(req, res);
+    } else if (req.url === '/puppeteer'+config.vttControllerURL || req.url === '/puppeteer'+config.vttControllerURL+'/') {
+        puppeteerController(req, res);
     } else if (req.url.match(/^\/static\//)) {
         staticFile(req, res);
     } else if (req.url === '/502') {
