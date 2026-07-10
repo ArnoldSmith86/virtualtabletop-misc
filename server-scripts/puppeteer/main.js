@@ -654,7 +654,7 @@ function githubWebhookReceived(req, res) {
                 }
 
                 if (req.headers['x-github-event'] === 'pull_request' && payload.action === 'synchronize') {
-                    call(`"${__dirname}/pr-stop.sh" "${config.templatePath}" "${payload.number}" >> "${__dirname}/servers/PR-${payload.number}.log" 2>&1`);
+                    call(`"${__dirname}/pr-update.sh" "${config.templatePath}" "${payload.number}" "${config.vttAdminURL}" "${config.ntfyURL}" >> "${__dirname}/servers/PR-${payload.number}.log" 2>&1`);
                 }
 
                 if (req.headers['x-github-event'] === 'pull_request' && payload.action === 'closed') {

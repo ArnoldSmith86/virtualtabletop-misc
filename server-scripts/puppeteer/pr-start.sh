@@ -13,9 +13,15 @@ modules=$DIR/common/modules
 engineAssets=$DIR/common/engineAssets
 assets=$DIR/common/assets
 
-"$DIR"/pr-stop.sh "$1" "$2" keep-commons
+# if the server is already running fine, update it in place instead of tearing everything down
+INPLACE=
+if pgrep -F "$SERVERDIR/server.pid" >/dev/null 2>&1 && ! grep -q ERROR "$SERVERDIR/state.json" 2>/dev/null; then
+  INPLACE=1
+else
+  "$DIR"/pr-stop.sh "$1" "$2" keep-commons
+fi
 
-echo "$(date) - pr-start.sh - $PR" >&2
+echo "$(date) - pr-start.sh - $PR${INPLACE:+ - INPLACE}" >&2
 
 pgrep -F "$SERVERDIR/script.pid" 2>/dev/null && exit 1
 grep ERROR "$SERVERDIR/state.json" 2>/dev/null && exit 1
@@ -30,6 +36,14 @@ cd "$SERVERDIR"
 
 echo $$ > script.pid
 
+if [ "$INPLACE" ]; then
+  echo '{"state": "0/4 stopping server for in-place update"}' > state.json
+  pkill -F server.pid
+  while pgrep -F server.pid >/dev/null; do
+    sleep 1
+  done
+fi
+
 echo '{"state": "1/4 copying template files"}' > state.json
 
 # abort if less than 3 GB of free space is available
@@ -39,9 +53,21 @@ if [ $(df --output=avail -BG . | tail -n 1 | tr -d 'G') -lt 3 ]; then
   exit 1
 fi
 
-cp -a "$TEMPLATE"/.git .
+# extglob must be enabled before bash parses the if-block below that uses !(...)
 shopt -s extglob
-cp -a "$TEMPLATE"/!(save|node_modules|server.log) .
+
+if [ "$INPLACE" ]; then
+  # only the fresh .git is needed - "git checkout" below restores all tracked files;
+  # remove the symlinks into common/ first so git doesn't write through them
+  [ -L library ] && rm library
+  [ -L assets ] && rm assets
+  rm -rf .git
+  rm -f _*.xz git-*.xz
+  cp -a "$TEMPLATE"/.git .
+else
+  cp -a "$TEMPLATE"/.git .
+  cp -a "$TEMPLATE"/!(save|node_modules|server.log) .
+fi
 shopt -u extglob
 
 if [ $PR -gt 10000 ]; then
@@ -49,14 +75,14 @@ if [ $PR -gt 10000 ]; then
   echo '{"state": "2/4 checking out commit '$commit'"}' > state.json
 
   git checkout .
-  git checkout $commit
+  git checkout -f $commit
   name="$(git rev-parse --short HEAD) | VTT"
 else
   echo '{"state": "2/4 checking out pull request"}' > state.json
 
   git checkout .
   git fetch origin pull/$PR/head:PR
-  git checkout PR
+  git checkout -f PR
   name="PR$PR | $(git rev-parse --short HEAD) | VTT"
 fi
 
@@ -169,7 +195,10 @@ EOF
 echo '{"state": "3/4 installing dependencies"}' > state.json
 
 modulesHash=$(md5sum package-lock.json | awk '{ print $1 }')
-if ! [ -d "$modules/$modulesHash" ]; then
+if [ "$INPLACE" ] && [ -d node_modules ] && [ "$(cat node_modules.hash 2>/dev/null)" = "$modulesHash" ]; then
+  echo '{"state": "3/4 dependencies unchanged"}' > state.json
+elif ! [ -d "$modules/$modulesHash" ]; then
+  rm -rf node_modules
   mkdir -p "$modules"
   if ! npm install --omit=dev; then
     npm uninstall jest*
@@ -190,11 +219,13 @@ if ! [ -d "$modules/$modulesHash" ]; then
     sleep 60
   fi
 else
+  rm -rf node_modules
   cp -la "$modules/$modulesHash" node_modules
 fi
+echo "$modulesHash" > node_modules.hash
 
 
-if [ -e "$BACKUP" ]; then
+if ! [ "$INPLACE" ] && [ -e "$BACKUP" ]; then
     echo '{"state": "4/4 restoring backup"}' > state.json
     tar xJf "$BACKUP"
 fi
