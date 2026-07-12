@@ -57,6 +57,7 @@
     <h1>Server Starter</h1>
     <p>The VirtualTabletop.io server you are trying to access is currently not running.</p>
     <button id="startButton" onclick="startServer()">Start Server</button>
+    <p><label><input type="checkbox" id="autoStart" onchange="localStorage.setItem('puppeteerAutoStart', this.checked)"> Automatically start the server in this browser</label></p>
     <p id="state"></p>
 </div>
 
@@ -102,5 +103,10 @@
                 }
             });
         }, 1000);
+    }
+
+    if (localStorage.getItem('puppeteerAutoStart') === 'true') {
+        document.getElementById('autoStart').checked = true;
+        startServer();
     }
 </script>
