@@ -769,15 +769,22 @@ function collectServerErrors(server, logPath, savePath) {
 // Collects new errors from MAIN, all BETA-* and all PR-* servers and POSTs them
 // to the AI agent, HMAC-signed with the shared secret. Failures just retry on
 // the next interval (line progress is only persisted by the main loop's write).
-async function reportErrorsToAgent() {
+// `onlyServers` (a Set) restricts the scan to the servers whose logs just
+// changed — the event-driven path passes it so a single crash doesn't re-read
+// every server's log. The periodic sweep passes nothing → scans all.
+async function reportErrorsToAgent(onlyServers = null) {
     if (!config.betaUpdateSecret) return;
 
     // First run ever: baseline all logs at their current length instead of
-    // flooding the agent with the whole error backlog.
+    // flooding the agent with the whole error backlog. Always scan every server
+    // when baselining, so a partial (watcher-triggered) first call can't leave
+    // other servers un-baselined and get them flooded on the next full sweep.
     const baseline = !persistentData.errorReportLines;
+    if (baseline) onlyServers = null;
 
     const reports = [];
     for (const server of fs.readdirSync(`${__dirname}/servers`)) {
+        if (onlyServers && !onlyServers.has(server)) continue;
         let savePath = null;
         if (server === 'MAIN') savePath = `${__dirname}/save/MAIN/errors`;
         else if (server.match(/^BETA-[A-Za-z0-9_-]+$/)) savePath = `${__dirname}/save/${server}/errors`;
@@ -1211,12 +1218,16 @@ setInterval(async () => {
         console.error(`Error reading MAIN server log: ${err}`);
     }
 
-    // Route new errors (MAIN + beta + PR servers) to the AI agent.
+    // Route new errors (MAIN + beta + PR servers) to the AI agent. This full
+    // sweep is now a fallback reconcile behind the log watchers below — it
+    // catches anything a missed/coalesced inotify event or a log rotation left
+    // behind, and (re)attaches watchers for servers that came or went.
     try {
         await reportErrorsToAgent();
     } catch (e) {
         console.log(new Date().toISOString(), 'ERROR-REPORT', `unexpected failure: ${e.message}`);
     }
+    refreshCrashWatchers();
 
     // Update the last checked line number in config
     persistentData.lastCheckedLine = lastCheckedLine;
@@ -1225,3 +1236,94 @@ setInterval(async () => {
     persistentData.stackContextCache = stackContextCache;
     fs.writeFileSync(`${__dirname}/persistent-data.json`, JSON.stringify(persistentData, null, 2));
 }, 5 * 60 * 1000);
+
+// ---------------------------------------------------------------------------
+// Immediate crash reporting: watch each server's log and report within a second
+// or two of a crash, instead of waiting for the 5-minute sweep. The sweep above
+// stays as a fallback reconcile (missed/coalesced inotify events, log rotation,
+// restarts) and re-attaches these watchers.
+
+const SERVERS_DIR = `${__dirname}/servers`;
+const logWatchers = new Map();       // server name -> fs.FSWatcher on its dir
+const dirtyServers = new Set();      // servers whose logs changed since last flush
+let reportTimer = null;
+let reportFirstScheduled = 0;
+const REPORT_DEBOUNCE_MS = 1500;     // settle a burst of log lines into one report
+const REPORT_MAX_MS = 8000;          // ...but never wait longer than this to fire
+
+function isTrackedServer(server) {
+    return server === 'MAIN' || /^BETA-[A-Za-z0-9_-]+$/.test(server) || /^PR-\d+$/.test(server);
+}
+
+async function flushErrorReport() {
+    reportTimer = null;
+    const servers = dirtyServers.size ? new Set(dirtyServers) : null;
+    dirtyServers.clear();
+    try {
+        await reportErrorsToAgent(servers);
+    } catch (e) {
+        console.log(new Date().toISOString(), 'ERROR-REPORT', `unexpected failure: ${e.message}`);
+    }
+}
+
+// Debounced trigger: coalesce a burst of writes but fire at most REPORT_MAX_MS
+// after the first pending event so a chatty log can't defer a report forever.
+function scheduleErrorReport(server) {
+    if (server) dirtyServers.add(server);
+    const now = Date.now();
+    if (!reportTimer) reportFirstScheduled = now;
+    else clearTimeout(reportTimer);
+    const delay = Math.max(0, Math.min(REPORT_DEBOUNCE_MS, reportFirstScheduled + REPORT_MAX_MS - now));
+    reportTimer = setTimeout(flushErrorReport, delay);
+}
+
+// Watch one server's directory (not the log file directly) so a log that is
+// created or rotated is still caught; react only to `server.log` so frequent
+// state.json writes during play don't trigger scans.
+function watchServer(server) {
+    if (logWatchers.has(server)) return;
+    const dir = `${SERVERS_DIR}/${server}`;
+    if (!fs.existsSync(dir)) return;
+    try {
+        const w = fs.watch(dir, (eventType, filename) => {
+            if (filename === 'server.log') scheduleErrorReport(server);
+        });
+        w.on('error', (e) => {
+            console.error(`crash-watch ${server}: ${e.message}`);
+            try { w.close(); } catch (e2) {}
+            logWatchers.delete(server);
+        });
+        logWatchers.set(server, w);
+    } catch (e) {
+        console.error(`could not watch ${dir}: ${e.message}`);
+    }
+}
+
+// Attach watchers for all current servers, drop watchers for servers that went
+// away (a stopped PR). Idempotent — safe to call repeatedly.
+function refreshCrashWatchers() {
+    let entries;
+    try { entries = fs.readdirSync(SERVERS_DIR); } catch (e) { return; }
+    const current = new Set(entries.filter(isTrackedServer));
+    for (const server of current) watchServer(server);
+    for (const [server, w] of logWatchers) {
+        if (!current.has(server)) {
+            try { w.close(); } catch (e) {}
+            logWatchers.delete(server);
+        }
+    }
+}
+
+// Watch the servers/ root so a newly started PR server gets a watcher within
+// seconds (rather than up to 5 minutes later at the next sweep).
+try {
+    fs.watch(SERVERS_DIR, () => refreshCrashWatchers());
+} catch (e) {
+    console.error(`could not watch ${SERVERS_DIR}: ${e.message}`);
+}
+
+// Baseline log positions at boot and attach the initial watchers, so the first
+// real crash after startup is reported immediately instead of at the first sweep.
+reportErrorsToAgent().catch((e) =>
+    console.log(new Date().toISOString(), 'ERROR-REPORT', `startup baseline failed: ${e.message}`));
+refreshCrashWatchers();
