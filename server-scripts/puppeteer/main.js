@@ -677,11 +677,36 @@ function githubWebhookReceived(req, res) {
 // ---------------------------------------------------------------------------
 // Error reporting to the AI agent (agent.virtualtabletop.io/errors).
 //
-// WARNING: for client errors the FULL error file is sent unmodified — it
-// includes room names, player names, room state, HTML snapshots and the raw
-// user agent. These reports can end up in public GitHub comments, so this
-// leaks user data by design (explicitly requested). Revert to a field
-// whitelist if that is no longer acceptable.
+// WARNING: for client errors the FULL error file is sent (room names, player
+// names, room state, HTML snapshots, raw user agent) — only oversized fields are
+// trimmed (see capReport) to fit the agent's request-size limit. These reports
+// can end up feeding a fix worker that opens public GitHub PRs, so this leaks
+// user data by design (explicitly requested); the agent side keeps the payload
+// out of anything public. Revert to a field whitelist if that changes.
+
+// The agent's POST /errors accepts up to 64MB. Keep each report and each POST
+// body safely under that: a pathological single crash (a huge DOM/state) is
+// trimmed field-by-field, and a burst of crashes is split across POSTs.
+const MAX_REPORT_BYTES = 40 * 1024 * 1024; // per report
+const MAX_BATCH_BYTES = 50 * 1024 * 1024;  // per POST body
+
+function jsonBytes(v) {
+    try { return Buffer.byteLength(JSON.stringify(v) ?? 'null'); } catch (e) { return 0; }
+}
+
+// Trim an over-large client report in place: drop the heaviest, least-essential
+// fields first (html = full DOM, then the big state blobs) so the smaller,
+// higher-signal fields the fix worker needs still get through. Each dropped
+// field is replaced by a marker noting its original size.
+function capReport(r) {
+    if (jsonBytes(r) <= MAX_REPORT_BYTES) return r;
+    for (const field of ['html', 'widgetsState', 'delta', 'undoProtocol', 'jeLoggingData']) {
+        if (r[field] === undefined) continue;
+        r[field] = `<omitted: ${jsonBytes(r[field])} bytes — exceeded per-report size cap>`;
+        if (jsonBytes(r) <= MAX_REPORT_BYTES) break;
+    }
+    return r;
+}
 
 // Scans one server's log for new client errors / NodeJS crashes and returns
 // sanitized reports. Line progress is tracked per server in persistentData.
@@ -766,17 +791,32 @@ async function reportErrorsToAgent() {
     }
     if (!reports.length) return;
 
-    const body = JSON.stringify({ reports });
-    const signature = 'sha256=' + crypto.createHmac('sha256', config.betaUpdateSecret).update(body).digest('hex');
-    try {
-        const res = await fetch('https://agent.virtualtabletop.io/errors', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-beta-signature': signature },
-            body
-        });
-        console.log(new Date().toISOString(), 'ERROR-REPORT', `sent ${reports.length} report(s), agent answered ${res.status}`);
-    } catch (e) {
-        console.log(new Date().toISOString(), 'ERROR-REPORT', `failed to reach agent: ${e.message}`);
+    // Trim pathologically large reports, then pack into POST bodies that each stay
+    // under the agent's size limit (a single 5-min interval could carry several
+    // full-DOM client crashes).
+    const capped = reports.map(capReport);
+    const batches = [];
+    let cur = [], curBytes = 2; // "[]"
+    for (const r of capped) {
+        const rb = jsonBytes(r) + 1; // +1 for the ", " separator (approx)
+        if (cur.length && curBytes + rb > MAX_BATCH_BYTES) { batches.push(cur); cur = []; curBytes = 2; }
+        cur.push(r); curBytes += rb;
+    }
+    if (cur.length) batches.push(cur);
+
+    for (const batch of batches) {
+        const body = JSON.stringify({ reports: batch });
+        const signature = 'sha256=' + crypto.createHmac('sha256', config.betaUpdateSecret).update(body).digest('hex');
+        try {
+            const res = await fetch('https://agent.virtualtabletop.io/errors', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-beta-signature': signature },
+                body
+            });
+            console.log(new Date().toISOString(), 'ERROR-REPORT', `sent ${batch.length} report(s) (${body.length} bytes), agent answered ${res.status}`);
+        } catch (e) {
+            console.log(new Date().toISOString(), 'ERROR-REPORT', `failed to reach agent: ${e.message}`);
+        }
     }
 }
 
