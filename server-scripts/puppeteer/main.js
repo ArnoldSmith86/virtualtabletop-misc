@@ -677,20 +677,11 @@ function githubWebhookReceived(req, res) {
 // ---------------------------------------------------------------------------
 // Error reporting to the AI agent (agent.virtualtabletop.io/errors).
 //
-// PRIVACY: reports are built from a strict WHITELIST of fields — the error's
-// first line, its stack frames, a coarse browser family, timestamp, server and
-// error id. The client error files also contain room names, player names, room
-// state and HTML snapshots; none of that must EVER leave this server, so those
-// fields are never read into a report. Do not add fields without considering
-// that reports can end up in public GitHub comments.
-
-function browserFamily(userAgent) {
-    if (!userAgent) return 'unknown';
-    const m = String(userAgent).match(/(Edg|Edge|OPR|Firefox|Chrome|Safari)\/([0-9]+)/);
-    if (!m) return 'other';
-    const names = { Edg: 'Edge', OPR: 'Opera' };
-    return `${names[m[1]] || m[1]} ${m[2]}`;
-}
+// WARNING: for client errors the FULL error file is sent unmodified — it
+// includes room names, player names, room state, HTML snapshots and the raw
+// user agent. These reports can end up in public GitHub comments, so this
+// leaks user data by design (explicitly requested). Revert to a field
+// whitelist if that is no longer acceptable.
 
 // Scans one server's log for new client errors / NodeJS crashes and returns
 // sanitized reports. Line progress is tracked per server in persistentData.
@@ -715,15 +706,14 @@ function collectServerErrors(server, logPath, savePath) {
             const [, timestamp, id] = clientMatch;
             try {
                 const errorData = JSON.parse(fs.readFileSync(`${savePath}/${id}.json`, 'utf8'));
-                const stackLines = String(errorData.error || '').split('\n');
+                // Send the entire error file untouched (room names, player names,
+                // room state, HTML snapshots, raw user agent — everything).
                 reports.push({
                     server,
                     type: 'client',
                     errorId: id,
                     timestamp,
-                    error: stackLines[0].trim(),
-                    stack: stackLines.slice(1, 16).map(l => l.trim()).join('\n'),
-                    browser: browserFamily(errorData.userAgent)
+                    ...errorData
                 });
             } catch (e) { /* error file gone or unreadable — skip */ }
         } else if (line.trim().startsWith('Error:')) {
