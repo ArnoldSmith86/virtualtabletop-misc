@@ -1,41 +1,68 @@
 import * as vscode from 'vscode';
+import * as http from 'http';
 import * as https from 'https';
 
 class UrlFileSystemProvider implements vscode.FileSystemProvider {
-	public rooms: [string, vscode.FileType][] = [];
+	public rooms = new Map<string, [string, vscode.FileType][]>();
 	private _emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
 	readonly onDidChangeFile: vscode.Event<vscode.FileChangeEvent[]> = this._emitter.event;
 
+	constructor(private context: vscode.ExtensionContext) {}
+
+	private roomsFor(uri: vscode.Uri): [string, vscode.FileType][] {
+		let rooms = this.rooms.get(uri.authority);
+		if (!rooms) {
+			rooms = [];
+			this.rooms.set(uri.authority, rooms);
+		}
+		return rooms;
+	}
+
+	private getServerUrl(uri: vscode.Uri): string {
+		let url = this.context.globalState.get<string>('serverUrl_' + uri.authority) || this.context.globalState.get<string>('lastServerUrl') || 'https://virtualtabletop.io';
+		if (url.endsWith('/')) {
+			url = url.slice(0, -1);
+		}
+		return url;
+	}
+
 	readDirectory(uri: vscode.Uri): [string, vscode.FileType][] | Thenable<[string, vscode.FileType][]> {
-		return this.rooms;
+		return this.roomsFor(uri);
 	}
 
 	async readFile(uri: vscode.Uri): Promise<Uint8Array> {
 		return new Promise<Uint8Array>((resolve, reject) => {
-			console.log("GET", 'https://virtualtabletop.io/state'+uri.path);
-			https.get('https://virtualtabletop.io/state'+uri.path, (response) => {
+			const fullUrl = this.getServerUrl(uri) + '/state' + uri.path;
+			const lib = fullUrl.startsWith('https') ? https : http;
+			console.log("GET", fullUrl);
+			lib.get(fullUrl, (response) => {
 				const data: any[] = [];
 				response.on('data', (chunk) => {
 					data.push(chunk);
 				});
 				response.on('end', () => {
-					resolve(Buffer.concat(data));
+					resolve(new Uint8Array(Buffer.concat(data)));
 				});
 				response.on('error', (error) => {
 					reject(error);
 				});
+			}).on('error', (error) => {
+				reject(error);
 			});
 		});
 	}
 
 	async writeFile(uri: vscode.Uri, content: Uint8Array, options: { create: boolean; overwrite: boolean; }): Promise<void> {
-		if(!this.rooms.filter(e=>e[0]==uri.path).length) {
-			console.log("CREATE", 'https://virtualtabletop.io/state'+uri.path);
-			this.rooms.push([uri.path, vscode.FileType.File]);
+		const fullUrl = this.getServerUrl(uri) + '/state' + uri.path;
+		const lib = fullUrl.startsWith('https') ? https : http;
+		const rooms = this.roomsFor(uri);
+		if(!rooms.filter(e=>e[0]===uri.path).length) {
+			console.log("CREATE", fullUrl);
+			rooms.push([uri.path, vscode.FileType.File]);
 		} else {
 			return new Promise<void>((resolve, reject) => {
-				console.log("PUT", 'https://virtualtabletop.io/state'+uri.path);
-				const request = https.request('https://virtualtabletop.io/state'+uri.path, { method: 'PUT', headers: { 'Content-Type': 'application/json' } }, (response) => {
+				console.log("PUT", fullUrl);
+				const request = lib.request(fullUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json' } }, (response) => {
 					if (response.statusCode !== 200) {
 						reject(new Error(`Failed to save file: ${response.statusMessage}`));
 					}
@@ -61,7 +88,7 @@ class UrlFileSystemProvider implements vscode.FileSystemProvider {
 			};
 		}
 
-		for(const room of this.rooms) {
+		for(const room of this.roomsFor(uri)) {
 			if(uri.path === room[0]) {
 				return {
 					type: vscode.FileType.File,
@@ -93,10 +120,23 @@ class UrlFileSystemProvider implements vscode.FileSystemProvider {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	const fileSystemProvider = new UrlFileSystemProvider();
+	const fileSystemProvider = new UrlFileSystemProvider(context);
 	context.subscriptions.push(vscode.workspace.registerFileSystemProvider('vtt', fileSystemProvider, { isCaseSensitive: true }));
-	context.subscriptions.push(vscode.commands.registerCommand('vtt.workspaceInit', async (url: string) => {
-		vscode.workspace.updateWorkspaceFolders(0, 0, { uri: vscode.Uri.parse('vtt:/'), name: "VirtualTabletop.io" });
+	context.subscriptions.push(vscode.commands.registerCommand('vtt.workspaceInit', async () => {
+		const defaultUrl = context.globalState.get<string>('lastServerUrl') || 'https://virtualtabletop.io';
+		const url = await vscode.window.showInputBox({
+			prompt: 'Enter server URL',
+			value: defaultUrl
+		});
+		if (url) {
+			await context.globalState.update('lastServerUrl', url);
+			let displayName = url.replace(/^https?:\/\//, '');
+			if (displayName.endsWith('/')) {
+				displayName = displayName.slice(0, -1);
+			}
+			await context.globalState.update('serverUrl_' + displayName, url);
+			vscode.workspace.updateWorkspaceFolders(0, 0, { uri: vscode.Uri.parse(`vtt://${displayName}/`), name: displayName });
+		}
 	}));
 }
 
